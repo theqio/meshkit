@@ -1,0 +1,76 @@
+﻿{
+  "state": {
+    "global": {
+      "ElementOrder": "ProgramControlled", 
+      "CurvatureNormalAngle": 0.0, 
+      "ShapeChecking": "True", 
+      "TransitionRatio": 0.27200000000000002, 
+      "AutomaticMeshBasedDefeaturing": "True", 
+      "PhysicsPreference": "Mechanical", 
+      "TopologyChecking": "True", 
+      "SmoothingIterations": 5.0, 
+      "QuadMesh": "True", 
+      "GrowthRate": 1.2, 
+      "UseAdaptiveSizing": "False", 
+      "DefeatureTolerance": 0.0, 
+      "CaptureCurvature": "True", 
+      "UseAutomaticInflation": "False", 
+      "UsePostSmoothing": "True", 
+      "StraightSidedElements": "False", 
+      "Resolution": 2.0, 
+      "ElementSize": 36.0, 
+      "CaptureProximity": "False", 
+      "Smoothing": "1"
+    }, 
+    "controls": {
+      "中隔断": {
+        "size_mm": 0.0, 
+        "algorithm": "PatchConforming", 
+        "suppressed": false, 
+        "body_count": 1, 
+        "method": "Automatic"
+      }, 
+      "Patch Conforming Method": {
+        "size_mm": 0.0, 
+        "algorithm": "PatchConforming", 
+        "suppressed": false, 
+        "body_count": 1, 
+        "method": "AllTriAllTet"
+      }, 
+      "小三角": {
+        "size_mm": 8.0, 
+        "algorithm": "PatchConforming", 
+        "suppressed": false, 
+        "body_count": 1, 
+        "method": "Automatic"
+      }, 
+      "中面": {
+        "size_mm": 32.0, 
+        "algorithm": "PatchConforming", 
+        "suppressed": false, 
+        "body_count": 2, 
+        "method": "Automatic"
+      }, 
+      "遗留控制": {
+        "size_mm": 0.0, 
+        "algorithm": "PatchConforming", 
+        "suppressed": false, 
+        "body_count": 1, 
+        "method": "Automatic"
+      }
+    }, 
+    "control_order": [
+      "中面", 
+      "中隔断", 
+      "小三角", 
+      "遗留控制", 
+      "Patch Conforming Method"
+    ]
+  }, 
+  "captured_at": "2026-11-17 08:55:41", 
+  "config": {
+    "preset": "container_1000c4", 
+    "user_file": null, 
+    "preset_dir": "D:\\ai\\meshkit\\presets"
+  }
+}

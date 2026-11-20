@@ -1,0 +1,103 @@
+{
+  "_comment": "集装箱 1000c4（D:\\work\\集装箱1000c4\\1.wbpj）网格配方预设。尺寸与质量阈值来自 2026-09 的实测记录（Mesh配置模板_集装箱.md / 网格质量检查报告.md）。",
+  "_schema": 1,
+  "preset": "container_1000c4",
+  "meta": {
+    "model_label": "集装箱 A + 4 储罐（Static Structural）",
+    "note": "286 体装配；波纹板中面 1~4 为 2.5mm 壳；二阶四面体为主；节点数目标 7.5M（按 2026-10 标定的 size^-2.14 关系）"
+  },
+  "project": {
+    "wbpj": "D:\\work\\集装箱1000c4\\1.wbpj"
+  },
+  "run": {
+    "dry_run": false,
+    "auto_repair": true,
+    "max_rounds": 4,
+    "keep_best": true,
+    "save_project": false,
+    "console_verbose": true
+  },
+  "mesh": {
+    "element_size_mm": 36.0,
+    "use_adaptive_sizing": false,
+    "resolution": 2,
+    "defeature_tolerance_mm": 0.0,
+    "automatic_mesh_based_defeaturing": true,
+    "capture_curvature": true,
+    "curvature_normal_angle_deg": 0.0,
+    "capture_proximity": false,
+    "growth_rate": 1.2,
+    "transition_ratio": 0.272,
+    "smoothing": "High",
+    "smoothing_iterations": 10,
+    "use_post_smoothing": true,
+    "shape_checking": true,
+    "topology_checking": true,
+    "element_order": "ProgramControlled",
+    "quad_mesh": true,
+    "straight_sided_elements": false,
+    "use_automatic_inflation": false,
+    "physics_preference": "Mechanical"
+  },
+  "budget": {
+    "basis": "nodes",
+    "target": 7500000,
+    "hard_cap": 9000000,
+    "size_exponent": 2.14
+  },
+  "controls": [
+    {"name": "中面",                "type": "body_sizing",      "size_mm": 32.0, "bodies": ["波纹板中面*"], "role": "base"},
+    {"name": "框架",                "type": "body_sizing",      "size_mm": 32.0, "bodies": ["框架*", "角柱*", "Solid11"], "role": "base"},
+    {"name": "角件",                "type": "body_sizing",      "size_mm": 10.0, "bodies": ["角件*"], "role": "load"},
+    {"name": "支梁",                "type": "body_sizing",      "size_mm": 10.0, "bodies": ["支梁架", "支梁*", "边支板*"], "role": "load"},
+    {"name": "储罐",                "type": "body_sizing",      "size_mm": 32.0, "bodies": ["储罐*"], "role": "base"},
+    {"name": "两侧隔断",            "type": "body_sizing",      "size_mm": 24.0, "bodies": ["两侧隔断*"], "role": "base"},
+    {"name": "中隔断",              "type": "body_sizing",      "size_mm": 20.0, "bodies": ["中间隔断*", "中隔断*"], "role": "base"},
+    {"name": "侧挡板",              "type": "body_sizing",      "size_mm": 20.0, "bodies": ["侧挡板*"], "role": "base"},
+    {"name": "支柱",                "type": "body_sizing",      "size_mm": 16.0, "bodies": ["三角板*", "侧支柱*"], "role": "load"},
+    {"name": "小三角",              "type": "body_sizing",      "size_mm": 8.0,  "bodies": ["小三角板*"], "role": "critical"},
+    {"name": "底",                  "type": "body_sizing",      "size_mm": 28.0, "bodies": ["底板*"], "role": "base"},
+    {"name": "框",                  "type": "body_sizing",      "size_mm": 24.0, "bodies": ["框*"], "role": "base"},
+    {"name": "Body Sizing",         "type": "body_sizing",      "size_mm": 4.0,  "bodies": ["支梁 6", "固体1"], "role": "critical"},
+    {"name": "Body Sizing 2",       "type": "body_sizing",      "size_mm": 20.0, "bodies": ["底条*"], "role": "base"},
+    {"name": "Automatic Method",    "type": "automatic_method", "method": "Automatic",     "algorithm": "PatchConforming", "bodies": ["波纹板中面*"], "role": "shell"},
+    {"name": "Patch Conforming Method",   "type": "automatic_method", "method": "AllTriAllTet", "bodies": ["支梁架", "支梁*"], "role": "tet"},
+    {"name": "Patch Conforming Method 2", "type": "automatic_method", "method": "AllTriAllTet", "bodies": ["固体1", "Solid"], "role": "tet"}
+  ],
+  "quality": {
+    "use_mechanical_limits": true,
+    "metrics": {
+      "ElementQuality":             {"direction": "high", "warn": 0.15, "error": 0.02},
+      "Skewness":                   {"direction": "low",  "warn": 0.85, "error": 0.97},
+      "JacobianRatio":              {"direction": "low",  "warn": 10.0, "error": 50.0},
+      "JacobianRatioCornerNodes":   {"direction": "high", "warn": 0.30, "error": 0.05},
+      "JacobianRatioGaussPoints":   {"direction": "high", "warn": 0.30, "error": 0.05},
+      "AspectRatio":                {"direction": "low",  "warn": 20.0, "error": 200.0},
+      "TetCollapse":                {"direction": "high", "warn": 0.10, "error": 0.01},
+      "MaximumCornerAngle":         {"direction": "low",  "warn": 165.0, "error": 175.0},
+      "MinTriAngle":                {"direction": "high", "warn": 10.0, "error": 2.0},
+      "MaxTriAngle":                {"direction": "low",  "warn": 160.0, "error": 172.0},
+      "WarpingFactor":              {"direction": "low",  "warn": 0.6, "error": 1.0},
+      "ParallelDeviation":          {"direction": "low",  "warn": 60.0, "error": 80.0}
+    }
+  },
+  "repair": {
+    "ladder": [
+      "smoothing",
+      "zero_size_controls",
+      "defeature",
+      "unmeshed_bodies",
+      "quad_shell",
+      "proximity",
+      "budget"
+    ],
+    "defeature_factor_ladder": [0.01, 0.03, 0.06],
+    "budget_scale_max": 1.8,
+    "budget_scale_min": 0.7,
+    "proximity_element_growth": 1.15,
+    "allow_element_order_change": false
+  },
+  "advice": {
+    "top_bodies": 10
+  }
+}

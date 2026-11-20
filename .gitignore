@@ -1,0 +1,59 @@
+# MeshKit AI — 忽略规则
+# 运行时产物（每台机器不同）
+app/ipc/
+app/config.json
+app/debug_*.txt
+app/debug_*.log
+app/_probe_write.txt
+app/model_memory.json
+app/experience.json
+app/group_overrides.json
+app/group_undo.json
+app/custom_groups.json
+app/geo_model.json
+
+# 本地归档（早期实验脚本，不入库）
+_archive/
+tools/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# 编辑器/系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# 备份与临时
+*.bak_*
+*.bak
+*.tmp
+*.log
+~$*
+
+# 报告目录：只保留结构分析与最新报告，其余忽略
+reports/*.log
+reports/MeshKitAI_*.png
+reports/_*
+reports/run_*
+reports/apply_manual_fix_*
+reports/人工决策清单_*
+reports/网格摘要_*
+reports/网格质量指标_*
+reports/重命名映射_*
+reports/全局设置快照_*
+reports/网格控制项快照_*
+reports/Sweep控制项_*
+reports/简化探针_*
+reports/环境探针_*
+reports/配置备份_*
+reports/失败诊断数据.json
+reports/体清单.json
+reports/分组规则.json
+reports/识别结果.json
+reports/插件按钮.png

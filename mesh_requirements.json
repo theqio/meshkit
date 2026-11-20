@@ -1,0 +1,149 @@
+{
+  "_readme": [
+    "2026-11-16 14:20 实测基线（环境探针实测，不是猜的）：",
+    "  单元 2,179,520 / 节点 4,752,751，网格状态 ObjectState=Solved、State=UpToDate",
+    "  290 个体，其中 10 个壳体（波纹板中面 1~4 = 2.5mm，两侧隔断中面 1~2 = 3mm ...）",
+    "  32 个网格控制项，全局 ElementSize = 100 mm，几何最小边长 0.0003255 mm",
+    "",
+    "本配置里的尺寸 = 模型当前实况，不是我的建议值。",
+    "这样 dry-run 出来的报告才是在评价你现在的网格，而不是评价一个虚构模型。",
+    "要改哪里就直接改这里：size_mm 改尺寸，bodies 改作用体（支持 * 通配符）。",
+    "",
+    "三个作用域为 0 的哑控制项（探针实测）：储罐 / Sweep Method 4 / Patch Conforming Method 3。",
+    "注意模型里有两个同名控制项『大三角』（一个 Sizing 20mm、一个 AutomaticMethod），",
+    "本配置用 type 区分它们，脚本按『名字+类型』匹配，不会认错。",
+    "",
+    "method 类控制项的 method 故意留空：probe 没读到它们的 Method 值，",
+    "留空 + create_if_missing=false 表示『只识别、绝不改写』，避免把 Sweep 改成别的。"
+  ],
+  "schema_version": 1,
+  "preset": "container_1000c4",
+  "meta": {
+    "model_label": "测试版：集装箱 A + 4 储罐（290 体 / 32 控制项）",
+    "note": "尺寸为 2026-11-16 实测基线；全局 100 mm；10 个壳体；4.75M 节点"
+  },
+  "project": {
+    "wbpj": "D:\\work\\集装箱1000c4\\测试\\测试版.wbpj"
+  },
+  "run": {
+    "dry_run": true,
+    "auto_repair": true,
+    "max_rounds": 4,
+    "keep_best": true,
+    "save_project": false,
+    "console_verbose": true,
+    "report_dir": "D:\\ai\\meshkit\\reports",
+    "element_sampling": {
+      "enabled": true,
+      "max_elements": 8000
+    }
+  },
+  "mesh": {
+    "element_size_mm": 100.0,
+    "use_adaptive_sizing": false,
+    "resolution": 2,
+    "defeature_tolerance_mm": 0.0,
+    "automatic_mesh_based_defeaturing": true,
+    "capture_curvature": true,
+    "curvature_normal_angle_deg": 0.0,
+    "capture_proximity": false,
+    "growth_rate": 1.2,
+    "transition_ratio": 0.272,
+    "smoothing": "High",
+    "smoothing_iterations": 10,
+    "use_post_smoothing": true,
+    "shape_checking": true,
+    "topology_checking": true,
+    "element_order": "ProgramControlled",
+    "quad_mesh": true,
+    "straight_sided_elements": false,
+    "use_automatic_inflation": false,
+    "physics_preference": "Mechanical"
+  },
+  "budget": {
+    "basis": "nodes",
+    "target": 5200000,
+    "hard_cap": 7000000,
+    "size_exponent": 2.14
+  },
+  "controls": [
+    {"name": "中面", "type": "body_sizing", "size_mm": 10.0, "bodies": ["波纹板中面*", "两侧隔断中面*"], "role": "shell"},
+    {"name": "框架", "type": "body_sizing", "size_mm": 40.0, "bodies": ["框架*", "角柱*"], "role": "base"},
+    {"name": "角件", "type": "body_sizing", "size_mm": 10.0, "bodies": ["角件*"], "role": "load"},
+    {"name": "支梁", "type": "body_sizing", "size_mm": 25.0, "bodies": ["支梁*", "边支板*"], "role": "load"},
+    {"name": "储罐", "type": "body_sizing", "size_mm": 40.0, "bodies": ["储罐*"], "role": "base"},
+    {"name": "两侧隔断", "type": "body_sizing", "size_mm": 40.0, "bodies": ["两侧隔断*"], "role": "base"},
+    {"name": "中隔断", "type": "body_sizing", "size_mm": 40.0, "bodies": ["中间隔断*", "中隔断*"], "role": "base"},
+    {"name": "侧挡板", "type": "body_sizing", "size_mm": 15.0, "bodies": ["侧挡板*"], "role": "base"},
+    {"name": "支柱", "type": "body_sizing", "size_mm": 20.0, "bodies": ["支柱*", "侧支柱*"], "role": "load"},
+    {"name": "小三角", "type": "body_sizing", "size_mm": 15.0, "bodies": ["小三角板*"], "role": "critical"},
+    {"name": "底", "type": "body_sizing", "size_mm": 50.0, "bodies": ["底板*"], "role": "base"},
+    {"name": "框", "type": "body_sizing", "size_mm": 50.0, "bodies": ["框*"], "role": "base"},
+    {"name": "Body Sizing", "type": "body_sizing", "size_mm": 4.0, "bodies": ["支梁*"], "role": "critical"},
+    {"name": "底梁", "type": "body_sizing", "size_mm": 30.0, "bodies": ["底梁*"], "role": "base"},
+    {"name": "底脚垫", "type": "body_sizing", "size_mm": 25.0, "bodies": ["底脚垫*"], "role": "base"},
+    {"name": "板片", "type": "body_sizing", "size_mm": 25.0, "bodies": ["板片*"], "role": "base"},
+    {"name": "大三角", "type": "body_sizing", "size_mm": 20.0, "bodies": ["大三角*"], "role": "load"},
+    {"name": "中隔断板", "type": "body_sizing", "size_mm": 25.0, "bodies": ["中隔断板*"], "role": "base"},
+    {"name": "内波纹板", "type": "body_sizing", "size_mm": 30.0, "bodies": ["内波纹板*"], "role": "base"},
+    {"name": "Body Sizing 2", "type": "body_sizing", "size_mm": 40.0, "bodies": ["Body Sizing 2*"], "role": "base"},
+
+    {"name": "Automatic Method", "type": "automatic_method", "bodies": ["波纹板中面*"], "role": "shell", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Patch Conforming Method", "type": "automatic_method", "bodies": [], "role": "tet", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Patch Conforming Method 2", "type": "automatic_method", "bodies": [], "role": "tet", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Patch Conforming Method 3", "type": "automatic_method", "bodies": [], "role": "tet", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Sweep Method", "type": "automatic_method", "bodies": [], "role": "sweep", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Sweep Method 2", "type": "automatic_method", "bodies": [], "role": "sweep", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Sweep Method 3", "type": "automatic_method", "bodies": [], "role": "sweep", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Sweep Method 4", "type": "automatic_method", "bodies": [], "role": "sweep", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Sweep Method 5", "type": "automatic_method", "bodies": [], "role": "sweep", "reuse_existing": true, "create_if_missing": false},
+    {"name": "Sweep Method 6", "type": "automatic_method", "bodies": [], "role": "sweep", "reuse_existing": true, "create_if_missing": false},
+    {"name": "中支柱", "type": "automatic_method", "bodies": [], "role": "tet", "reuse_existing": true, "create_if_missing": false},
+    {"name": "大三角", "type": "automatic_method", "bodies": [], "role": "tet", "reuse_existing": true, "create_if_missing": false}
+  ],
+  "quality": {
+    "use_mechanical_limits": true,
+    "collect_info_metrics": false,
+    "metrics": {
+      "ElementQuality": {"direction": "high", "warn": 0.15, "error": 0.02},
+      "Skewness": {"direction": "low", "warn": 0.85, "error": 0.97},
+      "JacobianRatio": {"direction": "low", "warn": 10.0, "error": 50.0},
+      "JacobianRatioCornerNodes": {"direction": "high", "warn": 0.3, "error": 0.05},
+      "JacobianRatioGaussPoints": {"direction": "high", "warn": 0.3, "error": 0.05},
+      "AspectRatio": {"direction": "low", "warn": 20.0, "error": 200.0},
+      "TetCollapse": {"direction": "high", "warn": 0.1, "error": 0.01},
+      "MaximumCornerAngle": {"direction": "low", "warn": 165.0, "error": 175.0},
+      "MinTriAngle": {"direction": "high", "warn": 10.0, "error": 2.0},
+      "MaxTriAngle": {"direction": "low", "warn": 160.0, "error": 172.0},
+      "WarpingFactor": {"direction": "low", "warn": 0.6, "error": 1.0},
+      "ParallelDeviation": {"direction": "low", "warn": 60.0, "error": 80.0}
+    }
+  },
+  "repair": {
+    "ladder": ["smoothing", "zero_size_controls", "defeature", "unmeshed_bodies", "quad_shell", "proximity", "budget"],
+    "defeature_factor_ladder": [0.01, 0.03, 0.06],
+    "budget_scale_max": 1.8,
+    "budget_scale_min": 0.7,
+    "proximity_element_growth": 1.15,
+    "allow_element_order_change": false
+  },
+  "advice": {
+    "top_bodies": 10
+  },
+  "policy": {
+    "shell_conversion_allowed": false,
+    "shell_policy": "keep_all",
+    "shell_patterns": ["波纹板*"],
+    "note": "硬性规则（2026-11-16 用户确认）：只有波纹板用壳（=现有中面）；目前探测到的所有壳体一律保留为壳，其余结构保持实体。工具不再建议改壳，薄壁件改用 Sweep（厚度方向 2 层）/ Hex-dominant。"
+  },
+  "sweep": {
+    "enabled": true,
+    "num_divisions": 2,
+    "free_face_mesh_type": "AllTri",
+    "auto_from_sampling": true,
+    "min_avg_ratio": 8.0,
+    "min_samples": 5,
+    "bodies": [],
+    "source_faces": {}
+  }
+}

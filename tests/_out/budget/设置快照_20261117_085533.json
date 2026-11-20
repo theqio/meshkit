@@ -1,0 +1,34 @@
+﻿{
+  "state": {
+    "global": {
+      "ElementOrder": "ProgramControlled", 
+      "CurvatureNormalAngle": 0.0, 
+      "ShapeChecking": "True", 
+      "TransitionRatio": 0.27200000000000002, 
+      "AutomaticMeshBasedDefeaturing": "True", 
+      "PhysicsPreference": "Mechanical", 
+      "TopologyChecking": "True", 
+      "SmoothingIterations": 10.0, 
+      "QuadMesh": "False", 
+      "GrowthRate": 1.2, 
+      "UseAdaptiveSizing": "False", 
+      "DefeatureTolerance": 0.0, 
+      "CaptureCurvature": "True", 
+      "UseAutomaticInflation": "False", 
+      "UsePostSmoothing": "True", 
+      "StraightSidedElements": "False", 
+      "Resolution": 2.0, 
+      "ElementSize": 20.0, 
+      "CaptureProximity": "True", 
+      "Smoothing": "2"
+    }, 
+    "controls": {}, 
+    "control_order": []
+  }, 
+  "captured_at": "2026-11-17 08:55:33", 
+  "config": {
+    "preset": "container_1000c4", 
+    "user_file": null, 
+    "preset_dir": "D:\\ai\\meshkit\\presets"
+  }
+}

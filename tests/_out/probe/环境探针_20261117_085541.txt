@@ -1,0 +1,68 @@
+﻿==============================================================================
+MESHKIT 环境探针（READ-ONLY，不修改任何东西）
+==============================================================================
+
+--- 基础 ---
+  Mechanical 版本 : 2022 R1 (fake Mechanical)
+  工程            : D:\fake\proj
+  体数            : 6
+  网格            : 0 单元 / 0 节点，状态 NoMesh
+  ⚠ 当前模型还没有网格：下面的『质量指标』会是空的。
+    先在后处理树里 Mesh 右键 Generate Mesh，或直接跑 run_mesh.py 再看。
+
+--- 能力探测 ---
+  body_count             = 6
+  geometry_categories    = <class 'unknown.DataModelObjectCategory'>
+  mesh_data              = True
+  mesh_metric_enum       = <module 'Ansys.Mechanical.DataModel.Enums' (built-in)>
+  quantity_factory       = <function Quantity at 0x00000000000007CD>
+  selection              = <module 'Ansys.ACT.Interfaces.Common' (built-in)>
+  version                = 2022 R1 (fake Mechanical)
+
+--- 几何 ---
+  最小边长 : 1.180e-04 mm（来源 Mesh.MinimumEdgeLength）
+  包围盒对角: 2668.3328 mm
+  壳体(厚度>0): 2 个：中面\波纹板中面1, 中面\波纹板中面4
+  未划上网的体: 6 个：底板2\固体4, 中面\波纹板中面1, 中面\波纹板中面4, 中间隔断2\中间隔断, 支梁架, 小三角板1
+
+--- 网格控制项（5 个）---
+  中面                           Body Sizing            size=32         作用体=2    
+  中隔断                          Body Sizing            size=0          作用体=1    
+  小三角                          Body Sizing            size=8          作用体=1    
+  遗留控制                         Body Sizing            size=0          作用体=1    
+  Patch Conforming Method      Automatic Method       size=0          作用体=1    
+
+--- 质量指标（逐个切换 Mesh Metric 读统计量，这一步最慢）---
+  ElementQuality             min=-            max=-            avg=-            std=-
+  Skewness                   min=-            max=-            avg=-            std=-
+  JacobianRatio              min=-            max=-            avg=-            std=-
+  JacobianRatioCornerNodes   min=-            max=-            avg=-            std=-
+  JacobianRatioGaussPoints   min=-            max=-            avg=-            std=-
+  AspectRatio                min=-            max=-            avg=-            std=-
+  TetCollapse                min=-            max=-            avg=-            std=-
+  MaximumCornerAngle         min=-            max=-            avg=-            std=-
+  MinTriAngle                min=-            max=-            avg=-            std=-
+  MaxTriAngle                min=-            max=-            avg=-            std=-
+  WarpingFactor              min=-            max=-            avg=-            std=-
+  ParallelDeviation          min=-            max=-            avg=-            std=-
+  共读了 12 个指标，用时 0.0 秒
+  MeshMetric 已还原: True
+
+--- Mechanical 质量限值 ---
+  NumberOfMeshQualityMetrics = 12
+  [ 0] ElementQuality             warning=0.1        error=0.05
+  [ 1] Skewness                   warning=0.9        error=0.98
+  [ 2] JacobianRatio              warning=10         error=50
+  [ 3] JacobianRatioCornerNodes   warning=0.3        error=0.1
+  [ 4] JacobianRatioGaussPoints   warning=0.3        error=0.1
+  [ 5] AspectRatio                warning=20         error=60
+  [ 6] TetCollapse                warning=0.1        error=0.01
+  [ 7] MaximumCornerAngle         warning=165        error=178
+  [ 8] MinTriAngle                warning=10         error=2
+  [ 9] MaxTriAngle                warning=160        error=175
+  [10] WarpingFactor              warning=0.6        error=1
+  [11] ParallelDeviation          warning=60         error=80
+
+--- 结论 ---
+  探针跑完。若要开始自动网格，执行： execfile(r"D:\ai\meshkit\run_mesh.py")
+  建议第一次先把 run_mesh.py 里 DRY_RUN 改成 True，只看不改。

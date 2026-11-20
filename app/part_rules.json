@@ -1,0 +1,389 @@
+{
+ "source": "canonical_manual_grouping",
+ "note": "由用户手工分组的正确结果建立，勿被自动重建覆盖",
+ "rules": {
+  "垫板": {
+   "sizes": [
+    {
+     "sig": "8x60x200",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "底横梁": {
+   "sizes": [
+    {
+     "sig": "40x40x2300",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "百叶窗口": {
+   "sizes": [
+    {
+     "sig": "50x100x415",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "侧封板": {
+   "sizes": [
+    {
+     "sig": "46x204x2380",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "小三角支撑": {
+   "sizes": [
+    {
+     "sig": "25x75x75",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "侧薄板": {
+   "sizes": [
+    {
+     "sig": "3x60x210",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "中隔断薄板": {
+   "sizes": [
+    {
+     "sig": "3x2300x2381",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "侧固定件": {
+   "sizes": [
+    {
+     "sig": "50x200x209",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "角件": {
+   "sizes": [
+    {
+     "sig": "118x162x178",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "118x178x218",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "三角板": {
+   "sizes": [
+    {
+     "sig": "25x213x213",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "25x235x235",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "电缆口框": {
+   "sizes": [
+    {
+     "sig": "50x100x195",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "50x100x295",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "横梁": {
+   "sizes": [
+    {
+     "sig": "100x200x2114",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "100x150x2194",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "纵梁": {
+   "sizes": [
+    {
+     "sig": "100x150x11868",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "100x200x11836",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "角支撑": {
+   "sizes": [
+    {
+     "sig": "209x209x2459",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "209x209x3139",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "波纹板": {
+   "sizes": [
+    {
+     "sig": "46x2858x11726",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "48x2025x2858",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "底板": {
+   "sizes": [
+    {
+     "sig": "4x2300x2892",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "4x2300x2986",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "4x2300x2990",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "储罐": {
+   "sizes": [
+    {
+     "sig": "2232x2678x2840",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "2232x2778x2934",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "内侧波纹板隔板": {
+   "sizes": [
+    {
+     "sig": "44x690x2300",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "44x810x949",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "44x810x950",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "内隔断框架": {
+   "sizes": [
+    {
+     "sig": "50x100x2300",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "50x50x860",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "50x50x999",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "120x2300x2388",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "上梁": {
+   "sizes": [
+    {
+     "sig": "73x120x2300",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "73x120x1800",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "105x185x1752",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "73x380x1800",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "80x140x2300",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "73x120x1226",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "上支撑梁": {
+   "sizes": [
+    {
+     "sig": "50x50x100",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "10x100x200",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "55x80x150",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "58x100x100",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "3x48x98",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "50x100x2594",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "其他": {
+   "sizes": [
+    {
+     "sig": "40x80x2300",
+     "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "120x140x2300",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "角柱": {
+   "sizes": [
+    {
+     "sig": "231x250x3070",
+     "count": 0,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  }
+ }
+}

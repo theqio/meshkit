@@ -1,0 +1,21 @@
+﻿metric,min,max,average,std,warning_limit,error_limit,status
+ElementQuality,0.35,1.0,0.72,0.11,0.15,0.02,PASS
+Skewness,0.001,0.52,0.26,0.1,0.85,0.97,PASS
+JacobianRatio,1.0,2.4,1.15,0.12,10.0,50.0,PASS
+JacobianRatioCornerNodes,0.72,1.0,0.95,0.04,0.3,0.05,PASS
+JacobianRatioGaussPoints,0.78,1.0,0.97,0.03,0.3,0.05,PASS
+AspectRatio,1.0,6.5,2.1,0.9,20.0,200.0,PASS
+TetCollapse,0.31,0.99,0.72,0.11,0.1,0.01,PASS
+MaximumCornerAngle,62.0,118.0,96.0,9.0,165.0,175.0,PASS
+MinTriAngle,26.0,55.0,40.0,5.0,10.0,2.0,PASS
+MaxTriAngle,70.0,118.0,92.0,7.0,160.0,172.0,PASS
+WarpingFactor,0.0,0.01,0.001,0.002,0.6,1.0,PASS
+ParallelDeviation,0.0,22.0,9.0,6.0,60.0,80.0,PASS
+WarpingAngle,,,,,,,SKIP
+MinEdgeLength,,,,,,,SKIP
+MaxEdgeLength,,,,,,,SKIP
+CharacteristicLength,,,,,,,SKIP
+OrthogonalAngle,,,,,,,SKIP
+
+# round,element_count,node_count,score,status
+1,571108,1176483,100.0,PASS

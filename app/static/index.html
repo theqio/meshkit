@@ -1,0 +1,2002 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>MeshKit AI — ANSYS 网格智能助手</title>
+<style>
+  :root{
+    --bg:#0f1319; --panel:#161c25; --panel2:#1c2430; --line:#27313f;
+    --fg:#e6edf3; --dim:#8b98a8; --acc:#3b82f6; --ok:#22c55e;
+    --warn:#f59e0b; --err:#ef4444; --info:#38bdf8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:12px 18px;
+         border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:9}
+  header h1{font-size:17px;margin:0;font-weight:650;letter-spacing:.3px}
+  header .sub{color:var(--dim);font-size:12px}
+  .dot{width:9px;height:9px;border-radius:50%;background:var(--err);display:inline-block}
+  .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+  .spacer{flex:1}
+  main{display:grid;grid-template-columns:470px minmax(0,1fr) 360px;gap:14px;padding:14px;align-items:start}
+  @media (max-width:1280px){ main{grid-template-columns:1fr} }
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card h2{font-size:13px;margin:0 0 12px;color:var(--dim);font-weight:600;
+           text-transform:uppercase;letter-spacing:.8px}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:9px}
+  .row label{color:var(--dim);font-size:13px}
+  input[type=number]{width:92px;background:var(--panel2);border:1px solid var(--line);
+    color:var(--fg);border-radius:6px;padding:5px 8px;font-size:13px;text-align:right}
+  input[type=number]:focus{outline:none;border-color:var(--acc)}
+  input[type=password],input[type=text]{background:var(--panel2);border:1px solid var(--line);
+    color:var(--fg);border-radius:6px;padding:6px 8px;font-size:13px;width:100%}
+  .btn{background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+       padding:8px 13px;border-radius:7px;cursor:pointer;font-size:13px;transition:.15s;
+       white-space:nowrap}
+  .btn:hover:not(:disabled){border-color:var(--acc);color:#fff}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.primary{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  .btn.danger{background:#3b1d1d;border-color:#5b2a2a;color:#ffb4b4}
+  .btn.wide{width:100%}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+  @media (max-width:900px){ .stats{grid-template-columns:1fr 1fr} }
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+  .stat .v{font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}
+  .stat .k{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.6px}
+  .stat.bad .v{color:var(--err)}
+  .stat.good .v{color:var(--ok)}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{padding:5px 4px;text-align:left;border-bottom:1px solid var(--line)}
+  th{color:var(--dim);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.5px}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .size-input{width:70px}
+  #log{height:190px;overflow:auto;background:#0b0f14;border:1px solid var(--line);
+       border-radius:8px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;color:#b6c2cf}
+  .finding{border-left:3px solid var(--line);padding:8px 10px;margin-bottom:8px;
+           background:var(--panel2);border-radius:0 6px 6px 0}
+  .finding.error{border-left-color:var(--err)}
+  .finding.warn{border-left-color:var(--warn)}
+  .finding.info{border-left-color:var(--info)}
+  .finding .t{font-weight:600;margin-bottom:3px}
+  .finding .d{color:var(--dim);font-size:12.5px}
+  .finding .a{margin-top:5px;font-size:12.5px;color:#9fd2ff}
+  .badge{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:4px;
+         margin-left:6px;vertical-align:middle}
+  .badge.error{background:#4a1d1d;color:#ffb4b4}
+  .badge.warn{background:#4a3510;color:#ffd48a}
+  .badge.info{background:#123a4a;color:#9fd2ff}
+  .summary{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+           padding:11px 12px;font-size:13px;margin-bottom:12px}
+  .llm{white-space:pre-wrap;font-size:13px;color:#cfe3f5}
+  .muted{color:var(--dim);font-size:12.5px}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid #ffffff40;
+        border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .toast{position:fixed;right:18px;bottom:18px;background:var(--panel2);border:1px solid var(--line);
+         border-radius:8px;padding:10px 14px;font-size:13px;max-width:420px;z-index:99;
+         box-shadow:0 8px 28px #0008;display:none}
+  details summary{cursor:pointer;color:var(--dim);font-size:12.5px;margin:8px 0}
+  textarea{width:100%;height:180px;background:#0b0f14;border:1px solid var(--line);
+           color:#b6c2cf;border-radius:8px;padding:9px;font:12px/1.5 Consolas,monospace;resize:vertical}
+</style>
+</head>
+<body>
+<header>
+  <h1>MeshKit AI</h1>
+  <span class="sub" id="projName" title="" style="max-width:460px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">模型：读取中…</span>
+  <span class="dot" id="dot"></span><span class="sub" id="bridgeText">检测中…</span>
+  <select id="agentSel" title="选择要控制的 Mechanical 实例"
+          style="display:none;background:var(--panel2);border:1px solid var(--line);
+                 color:var(--fg);border-radius:6px;padding:4px 8px;font-size:12.5px;
+                 max-width:340px"></select>
+  <span class="spacer"></span>
+  <span class="muted" id="progText" style="font-size:12px"></span>
+  <button class="btn danger" id="btnStop" hidden>■ 停止</button>
+  <button class="btn" id="btnRefresh">刷新状态</button>
+  <button class="btn primary" id="btnAI">AI 分析</button>
+  <button class="btn" id="btnSettings" title="设置（大模型密钥等）">设置</button>
+</header>
+
+<div id="flowBar" style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 18px;
+     border-bottom:1px solid var(--line);background:#121820;font-size:12px"></div>
+
+<main>
+  <div class="col colL">
+<section class="card">
+    <h2>网格设置</h2>
+    <h2>全局扫描 <span class="muted" id="scanSum" style="font-weight:400;text-transform:none"></span></h2>
+    <div class="muted" style="margin-bottom:6px">
+      按几何 + 模型记忆给出建议分组（新模型没有控制项也能用）</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <button class="btn primary" style="flex:1" id="btnScan">① 扫描模型</button>
+      <button class="btn" style="flex:1" id="btnScanApply"
+              title="在 Geometry 树里：重命名体 + 建分组文件夹（不动 Mesh；已存在的分组会跳过）">② Geometry 重命名+分组</button>
+      <button class="btn" style="flex:0 0 auto" id="btnUngroup"
+              title="解散 Geometry 里的所有分组文件夹，体保留（不删体）">③ 取消全部分组</button>
+    </div>
+    <div id="scanList" style="max-height:240px;overflow:auto;font-size:12px"></div>
+
+    <h2 style="margin-top:16px">尺寸与类别</h2>
+    <div class="row"><label>全局单元尺寸 (mm)</label><input type="number" id="sElementSize" step="0.5" min="1" max="200"></div>
+    <div class="row"><label>最小尺寸 (mm)</label><input type="number" id="sMinimumSize" step="0.5" min="0.1" max="100"></div>
+    <div class="row"><label>去特征尺寸 (mm)</label><input type="number" id="sDefeatureTolerance" step="0.1" min="0.01" max="10"></div>
+    <div class="row"><label>曲率法向角 (°)</label><input type="number" id="sCurvatureNormalAngle" step="1" min="5" max="60"></div>
+    <div class="row"><label>邻近捕捉</label>
+      <input type="checkbox" id="sCaptureProximity" style="width:18px;height:18px"></div>
+    <div class="muted" id="yellowHint" style="margin:6px 0 10px"></div>
+    <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+      <span class="muted" style="font-size:12px;white-space:nowrap">整体倍数</span>
+      <input type="number" id="globalScale" value="1.2" step="0.05" min="0.3" max="3"
+             style="width:64px;flex:0 0 auto">
+      <button class="btn" id="btnScale" style="flex:1;padding:5px 8px"
+              title="把表格里所有类别的尺寸乘以该倍数">应用到全部类别</button>
+    </div>
+    <button class="btn primary wide" id="btnApply" style="margin-bottom:8px">应用设置与尺寸</button>
+    <button class="btn wide" id="btnClearAll" style="margin-bottom:8px;background:#3b1d1d;border-color:#5b2a2a;color:#ffb4b4" title="清空模型里所有网格控制项与设置（保留 Geometry 分组）">一键清理全部配置</button>
+
+    <h2 style="margin-top:18px">类别（自动读取模型）</h2>
+    <div class="muted" id="catHint" style="margin-bottom:4px">点「刷新类别」从当前模型读取部件名称</div>
+    <div class="muted" id="lightSummary" style="margin-bottom:6px"></div>
+    <div id="catTable"></div>
+    <div class="grid2" style="margin-top:10px">
+      <button class="btn primary" id="btnSuggest">用预算推荐</button>
+      <button class="btn" id="btnSuggestFeature">用特征尺寸（更细）</button>
+    </div>
+    <div class="muted" id="suggestHint" style="margin-top:6px"></div>
+    <div class="grid2" style="margin-top:8px">
+      <button class="btn" id="btnScanCat">刷新类别</button>
+      <button class="btn" id="btnSaveCfg">存为默认</button>
+    </div>
+
+    <!-- 以下从左侧移入 -->
+    </section>
+  </div>
+  <div class="col colC">
+<!-- 左列：设置 -->
+  
+
+  <!-- 右列：AI -->
+  
+
+  <!-- 中列：状态 + 操作 + 日志 -->
+  <section>
+    <div class="card" style="margin-bottom:14px">
+      <h2>模型状态</h2>
+      <div class="stats">
+        <div class="stat"><div class="k">单元</div><div class="v" id="vElements">—</div></div>
+        <div class="stat" id="cardNodes"><div class="k">节点</div><div class="v" id="vNodes">—</div></div>
+        <div class="stat" id="cardBodies"><div class="k">体（失败）</div><div class="v" id="vBodies">—</div></div>
+        <div class="stat"><div class="k">网格状态</div><div class="v" id="vMeshState" style="font-size:15px">—</div></div>
+      </div>
+      <div class="row"><label>单位系统</label><span id="vUnits" class="muted">—</span></div>
+      <div class="row"><label>控制项</label><span id="vControls" class="muted">—</span></div>
+
+      <h2 style="margin-top:16px">操作</h2>
+      <div class="grid2">
+        <div style="display:flex;gap:6px;align-items:center">
+          <button class="btn" id="btnMesh" style="flex:1">生成网格</button>
+          <label class="muted" style="display:flex;align-items:center;gap:4px;
+                 font-size:11px;white-space:nowrap" title="勾选后先清空现有网格再重划；默认直接在原有网格上重划">
+            <input type="checkbox" id="chkClearMesh" style="margin:0">重划前清空
+          </label>
+        </div>
+        <button class="btn danger" id="btnFix">自动修复失败体</button>
+        <button class="btn" id="btnQuality">质量报告</button>
+        <button class="btn" id="btnHoleQuality"
+                title="只对打了「圆孔」标签的类别做质量分析（范围小、全自动）">圆孔质量</button>
+        <button class="btn" id="btnFailList">失败体清单</button>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>失败体 <span class="muted" id="failCount" style="font-weight:400;text-transform:none"></span></h2>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">
+        黄色/粉色区的体。每个体可单独设「修复尺寸」（生成 SIZE_FIX 控制项），设完点右侧「生成网格」重划</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="btn primary" style="flex:1" onclick="applyAllFailed(false)">
+          一键应用全部</button>
+        <button class="btn" style="flex:1" onclick="applyAllFailed(true)">
+          应用并重划</button>
+      </div>
+      <div id="failList" style="max-height:260px;overflow:auto"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>单元数排行 <span class="muted" id="cntSum" style="font-weight:400;text-transform:none"></span></h2>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">
+        按每个体的单元数从大到小；占大头的通常是薄壁/细长件，优先改扫掠或放宽尺寸</div>
+      <div style="display:flex;gap:6px;margin-bottom:8px">
+        <button class="btn primary" style="flex:1" onclick="loadCounts()">刷新排行</button>
+      </div>
+      <div id="cntList" style="max-height:260px;overflow:auto"></div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <h2>错误记录 <span class="muted" id="errCount" style="font-weight:400;text-transform:none"></span></h2>
+      <div class="muted" style="font-size:12px;margin-bottom:6px">
+        网格真正失败（Solved 状态下的非 Meshed 体）会自动记到这里，保存在
+        <code>reports/错误记录_日期.md</code></div>
+      <div id="errList" style="max-height:170px;overflow:auto;font-size:12.5px"></div>
+    </div>
+
+    <div class="card">
+      <h2>日志</h2>
+      <div id="log">就绪。</div>
+    </div>
+
+    <div class="card" style="margin-top:14px" id="reportCard" hidden>
+      <h2>质量报告</h2>
+      <textarea id="reportText" readonly></textarea>
+    </div>
+
+  </section>
+  </div>
+  <div class="col colR">
+<section class="card">
+    <h2>AI 诊断
+      <button class="btn" id="btnMeshAnalyze" style="float:right;padding:2px 9px;font-size:11.5px"
+              title="重新扫描 Mechanical 消息并给出建议">分析网格消息</button>
+    </h2>
+    <div class="summary" id="summary">点「AI 分析」获取诊断。</div>
+    <div id="findings"></div>
+    <div id="llmBox" hidden>
+      <h2 style="margin-top:14px">大模型分析</h2>
+      <div class="llm" id="llmText"></div>
+    </div>
+  <h2 style="margin-top:18px">常用配置</h2>
+    <div class="muted" id="favHint" style="margin-bottom:6px">手动保存当前尺寸+方法为一套配置</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="favName" placeholder="配置名称（如：标准粗网格）"
+             style="flex:1;min-width:0">
+      <button class="btn primary" id="btnFavSave" style="padding:6px 12px">保存</button>
+    </div>
+    <div id="favList"></div>
+
+    <div style="display:none">
+<h2 style="margin-top:18px">模型记忆</h2>
+    <div class="muted" style="margin-bottom:6px">存下当前模型的分类方案；换相近模型时按几何特征自动识别</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="memName" placeholder="记忆名称（如：集装箱-标准）"
+             style="flex:1;min-width:0">
+      <button class="btn primary" id="btnMemSave" style="padding:6px 12px">存入</button>
+    </div>
+    <button class="btn wide" id="btnMemCapture" style="margin-bottom:8px">
+      读取我当前的划分并保存</button>
+    <div id="memList"></div>
+
+    </div>
+<h2 style="margin-top:18px">经验库 <span class="muted" id="expSum"
+         style="font-weight:400;text-transform:none"></span></h2>
+    <div class="muted" style="margin-bottom:6px">每次网格化自动记录"问题→动作→效果"，同类几何给建议</div>
+    <div id="expList" style="max-height:190px;overflow:auto;font-size:12px"></div>
+
+
+    
+  </section>
+  </div>
+</main>
+
+
+<div id="settingsModal" style="display:none;position:fixed;inset:0;z-index:99;
+     background:rgba(0,0,0,.55);align-items:center;justify-content:center">
+  <div style="background:#161d27;border:1px solid #27313f;border-radius:10px;
+       width:420px;max-width:92vw;padding:18px 20px;box-shadow:0 18px 48px rgba(0,0,0,.6)">
+    <div style="display:flex;align-items:center;margin-bottom:12px">
+      <h2 style="margin:0;font-size:15px">设置</h2>
+      <span style="flex:1"></span>
+      <button class="btn" id="btnCloseSettings" style="padding:2px 9px">关闭</button>
+    </div>
+    <div class="muted" style="font-size:12px;margin-bottom:10px">
+      大模型为可选功能：留空则只用规则引擎（尺寸/接触/朝向），不联网。</div>
+    <div class="row"><label>接口密钥</label></div>
+    <input type="password" id="llmKey" placeholder="sk-... （留空则只用规则引擎）">
+    <div class="row" style="margin-top:10px"><label>模型</label></div>
+    <input type="text" id="llmModel" placeholder="deepseek-chat">
+    <button class="btn primary wide" id="btnSaveLLM" style="margin-top:12px">保存</button>
+    <div class="muted" id="settingsMsg" style="font-size:11.5px;margin-top:8px"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let CFG = null;
+let LAST_STATUS = null;
+let LAST_CATS = [];
+let LAST_SUG = null;
+let BUSY = false;
+
+function toast(msg, ms = 4200){
+  const t = $('toast');
+  t.textContent = msg; t.style.display = 'block';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.style.display = 'none', ms);
+}
+function log(msg){
+  const el = $('log');
+  const ts = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  el.textContent += `\n[${ts}] ${msg}`;
+  el.scrollTop = el.scrollHeight;
+}
+function setBusy(on, label){
+  BUSY = on;
+  ['btnMesh','btnFix','btnQuality','btnApply','btnFailList','btnScanCat'].forEach(id => $(id).disabled = on);
+  $('btnStop').hidden = !on;
+  if(on){
+    if(label) log(`${label} …`);
+    startProgressPoll();
+  }else{
+    stopProgressPoll();
+    $('progText').textContent = '';
+  }
+}
+
+/* ---------------- 进度与停止 ---------------- */
+let PROG_TIMER = null;
+
+function startProgressPoll(){
+  if(PROG_TIMER) return;
+  PROG_TIMER = setInterval(async () => {
+    try{
+      const p = await api('/api/progress');
+      const opName = {mesh:'生成网格', fix_failed:'修复失败体', apply:'应用设置',
+                      quality:'质量报告', scan_categories:'扫描类别',
+                      get_params:'读取参数'}[p.op] || p.op || '';
+      let txt = opName ? `${opName}：${p.step||''}` : '';
+      if(p.done !== null && p.done !== undefined && p.total){
+        txt += ` ${p.done}/${p.total}`;
+      }
+      $('progText').textContent = txt;
+    }catch(e){ /* 忽略 */ }
+  }, 1000);
+}
+
+function stopProgressPoll(){
+  if(PROG_TIMER){ clearInterval(PROG_TIMER); PROG_TIMER = null; }
+}
+
+async function cancelOp(){
+  try{
+    const r = await api('/api/cancel', {method:'POST', body: '{}'});
+    log(r.ok ? '已发送停止指令，当前操作会在下一个检查点退出' : ('停止失败：' + (r.error||'')));
+    toast(r.ok ? '已请求停止' : '停止失败');
+    $('progText').textContent = '正在停止…';
+  }catch(e){ log('停止异常：'+e); }
+}
+async function api(path, opts){
+  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
+  return await r.json();
+}
+const fmt = n => (n||0).toLocaleString('en-US');
+
+/* ---------------- 状态 ---------------- */
+async function refresh(){
+  try{
+    const p = await api('/api/ping');
+    const on = !!p.bridge;
+    $('dot').className = 'dot' + (on ? ' on' : '');
+    $('bridgeText').textContent = on ? '已连接 Mechanical' : '未连接 Mechanical';
+    if(!on){
+      $('summary').textContent = '桥接未连接。请在 Mechanical 的 Scripting 面板运行：execfile("D:/ai/meshkit/app/bridge_agent.py")';
+      return;
+    }
+    const st = await api('/api/status');
+    LAST_STATUS = st;
+    renderStatus(st);
+  }catch(e){ log('状态读取失败：' + e); }
+}
+
+function renderStatus(st){
+  if(!st || !st.ok){ log('状态异常：' + (st && st.error || '')); return; }
+  $('vElements').textContent = fmt(st.elements);
+  $('vNodes').textContent = fmt(st.nodes);
+  const failed = (st.failed_bodies || []).length;
+  const budget = (CFG && CFG.budget_nodes) || 7000000;
+  $('vBodies').textContent = `${st.body_total||0}（${failed}）`;
+  $('cardBodies').className = 'stat' + (failed ? ' bad' : ' good');
+  $('cardNodes').className = 'stat' + (st.nodes > budget ? ' bad' : '');
+  $('vMeshState').textContent = st.mesh_state || '—';
+  $('vUnits').textContent = st.unit_system || '—';
+  $('vControls').textContent = `${st.control_count||0} 个` +
+      (st.controls ? '：' + st.controls.slice(0,6).map(c=>c.name).join('、') + ((st.controls.length>6)?' …':'') : '');
+
+  // 黄色项提示
+  const s = st.settings || {};
+  const mm = t => { if(!t) return null; const n = parseFloat(String(t).split('[')[0]); if(isNaN(n)) return null;
+                    const low = String(t).replace(/\s/g,'').toLowerCase();
+                    return (low.includes('[m]') && !low.includes('[mm]')) ? n*1000 : n; };
+  const minv = mm(s.MinimumSize), defv = mm(s.DefeatureTolerance);
+  if(minv !== null && defv !== null){
+    if(defv > minv){
+      $('yellowHint').innerHTML = `<span style="color:#ffb4b4">⚠ Defeature ${defv} > Minimum ${minv}：会出现黄色项，无法划网格</span>`;
+    }else{
+      $('yellowHint').innerHTML = `<span style="color:#7ee2a8">✓ Defeature ${defv} ≤ Minimum ${minv}：配置合法</span>`;
+    }
+  }
+
+  // 同步输入框（仅在用户没有正在编辑时）
+  for(const k of ['ElementSize','MinimumSize','DefeatureTolerance','CurvatureNormalAngle']){
+    const v = mm(s[k]);
+    if(v !== null && document.activeElement.id !== 's'+k) $('s'+k).value = Math.round(v*100)/100;
+  }
+  if(typeof s.CaptureProximity === 'string')
+    $('sCaptureProximity').checked = /true/i.test(s.CaptureProximity);
+  renderFlow();
+}
+
+/* ---------------- 配置 / 尺寸表 ---------------- */
+async function loadConfig(){
+  const r = await api('/api/config');
+  CFG = r.config;
+  const s = CFG.settings || {};
+  ['ElementSize','MinimumSize','DefeatureTolerance','CurvatureNormalAngle'].forEach(k=>{
+    if(s[k] !== undefined) $('s'+k).value = s[k];
+  });
+  $('sCaptureProximity').checked = !!s.CaptureProximity;
+  $('llmKey').value = (CFG.llm && CFG.llm.api_key) || '';
+  $('llmModel').value = (CFG.llm && CFG.llm.model) || 'deepseek-chat';
+  if(CFG.sizes && Object.keys(CFG.sizes).length)
+    renderCategories(Object.keys(CFG.sizes).map(k => ({
+      name:k, bodies:'—', size_mm:CFG.sizes[k],
+      method:(CFG.methods||{})[k] || 'Automatic'})), null);
+}
+/* ---------------- 类别锁定 ---------------- */
+async function toggleLock(cat, on){
+  try{
+    const r = await api('/api/lock', {method:'POST', body: JSON.stringify(
+      {cat: cat, locked: !!on})});
+    if(r.ok){
+      log(on ? `已锁定类别「${cat}」（参数不可修改）` : `已解锁类别「${cat}」`);
+      toast(on ? `${cat} 已锁定` : `${cat} 已解锁`);
+      await loadCategories();
+    }else{ toast('锁定失败'); }
+  }catch(e){ log('锁定异常：'+e); }
+}
+
+async function toggleHole(cat, on){
+  try{
+    const r = await api('/api/hole', {method:'POST', body: JSON.stringify(
+      {cat: cat, hole: !!on})});
+    if(r.ok){
+      log(`圆孔标签：${cat} → ${on ? '是' : '否'}`);
+      await loadCategories();
+      toast(on ? `${cat} 标记为含圆孔` : `${cat} 取消圆孔标记`);
+    }else{ toast('设置失败'); }
+  }catch(e){ log('圆孔标签异常：'+e); }
+}
+
+async function toggleThin(cat, on){
+  setBusy(true, on ? `把「${cat}」标为薄板` : `取消「${cat}」的薄板标记`);
+  try{
+    // 1) 标签 + 配置里的方法/层数
+    const r = await api('/api/thin', {method:'POST', body: JSON.stringify(
+      {cat: cat, thin: !!on})});
+    if(!r.ok){ toast('设置失败'); setBusy(false); return; }
+    // 只设置标签与配置，不改 Mesh（方法在点「应用设置与尺寸」时才写入）
+    log(on ? `「${cat}」已标记薄板（尺寸=2.5×板厚，方法=扫掠+2层，应用后写入 Mesh）`
+           : `「${cat}」已取消薄板标记`);
+    toast(on ? `${cat} 已标记薄板` : `${cat} 已取消`);
+    await loadCategories();
+    refresh();
+  }catch(e){ log('薄板标记异常：'+e); }
+  setBusy(false);
+}
+
+function renderCategories(cats, methodsAvailable){
+  const opts = methodsAvailable || ["Automatic","Tetrahedrons","HexDominant","Sweep","MultiZone","CutCell"];
+  const label = {Automatic:'自动', Tetrahedrons:'四面体', HexDominant:'六面体主导',
+                 Sweep:'扫掠', MultiZone:'多区域', CutCell:'切割单元'};
+  if(!cats || !cats.length){
+    $('catTable').innerHTML = '<div class="muted">尚未读取类别（先连上 Mechanical 再点「刷新类别」）</div>';
+    return;
+  }
+  const rows = cats.map(c => {
+    const badges = [];
+    if(c.is_shell_cat) badges.push('<span class="badge info">壳体</span>');
+    if(c.is_thin_cat) badges.push(`<span class="badge warn" style="cursor:pointer"
+        title="已标记薄板：方法=扫掠+2层。点击取消（方法回退自动）" onclick="toggleThin('${c.name}', false)">薄板 ×</span>`);
+    else badges.push(`<span class="badge" style="cursor:pointer;opacity:.45"
+        title="点击标记为薄板：自动设方法=扫掠+2层，尺寸=2.5×板厚" onclick="toggleThin('${c.name}', true)">+薄板</span>`);
+    if(c.is_hole_cat) badges.push(`<span class="badge info" style="cursor:pointer"
+        title="已标记含圆孔，点击取消" onclick="toggleHole('${c.name}', false)">圆孔 ×</span>`);
+    else badges.push(`<span class="badge" style="cursor:pointer;opacity:.45"
+        title="点击标记为含圆孔（圆孔周边需加密/面网格控制）" onclick="toggleHole('${c.name}', true)">+圆孔</span>`);
+    const sizeVal = (c.size_mm === null || c.size_mm === undefined) ? '' : c.size_mm;
+    const recVal = (c.size_recommended === undefined || c.size_recommended === null) ? '' : c.size_recommended;
+    const allSup = !!c.is_all_suppressed;
+    if(allSup) badges.push(`<span class="badge" style="opacity:.6"
+        title="该类别所有体都被抑制（不参与网格划分），应用时会跳过">已抑制</span>`);
+    const locked = !!c.is_locked || allSup;
+    const disAttr = locked ? 'disabled' : '';
+    const light = c.light || 'red';
+    const lightColor = light === 'green' ? '#22c55e' : (light === 'yellow' ? '#f59e0b' : (light === 'muted' ? '#6b7280' : '#ef4444'));
+    const lightTitle = (c.light_reason || '').replace(/"/g, '');
+    const dot = `<span title="${lightTitle}" style="display:inline-block;width:9px;height:9px;
+      border-radius:50%;background:${lightColor};box-shadow:0 0 6px ${lightColor};
+      margin-right:5px;vertical-align:middle"></span>`;
+    const tip = c.size_basis
+      ? `title="推荐 ${recVal} mm：${c.size_basis}"`
+      : (recVal ? `title="推荐 ${recVal} mm"` : '');
+    const sel = opts.map(o =>
+      `<option value="${o}"${(c.method||'Automatic')===o?' selected':''}>${label[o]||o}</option>`).join('');
+    return `<tr>
+      <td>${dot}${c.name}${badges.join('')}${c.size_is_default
+        ? '<span class="badge warn" title="控制项未设尺寸，跟随全局">未设</span>' : ''}</td>
+      <td class="num muted">${c.bodies}</td>
+      <td class="num"><input type="number" class="size-input" data-cat="${c.name}" ${disAttr}
+         step="0.5" min="2" max="60" value="${c.size_is_default ? '' : sizeVal}"
+         placeholder="${c.size_is_default ? '未设' : recVal}"
+         title="${c.size_is_default ? '该控制项还没设尺寸，会跟随全局；填数字点应用即写入' : (c.size_basis||'').replace(/"/g,'')}"
+         style="width:52px"></td>
+      <td class="num" style="color:${recVal?'#9fd2ff':'var(--dim)'};font-size:12.5px"
+          title="${(c.size_basis||'').replace(/"/g,'')}">${recVal || '—'}</td>
+      <td><select class="method-sel" data-cat="${c.name}" ${disAttr}
+          onchange="onMethodChange('${c.name}', this.value)"
+         style="background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+                border-radius:6px;padding:4px 6px;font-size:12.5px">${sel}</select></td>
+      <td><button class="btn" style="padding:2px 7px;font-size:12px" ${disAttr}
+          onclick="applyOne('${c.name}')" title="应用该类别到网格">应用</button></td>
+      <td><button class="btn" style="padding:2px 7px;font-size:13px" ${disAttr}
+          onclick="toggleParams('${c.name}')" title="展开其它参数">⋯</button></td>
+      <td><button class="btn" style="padding:2px 6px;font-size:12px"
+          title="${locked ? '已锁定：点此解锁' : '点此锁定，锁定后本类别参数不可修改'}"
+          onclick="toggleLock('${c.name}', ${locked ? 'false' : 'true'})"
+          >${locked ? '🔒' : '🔓'}</button></td>
+    </tr>
+    <tr class="detail-row" id="det_${c.name}" hidden>
+      <td colspan="8" style="background:#0e1319;padding:10px 12px">
+        <div class="muted">正在读取参数…</div>
+      </td>
+    </tr>`;
+  }).join('');
+  $('catTable').innerHTML = `<table>
+    <thead><tr><th>类别</th><th class="num" style="width:34px">数量</th><th class="num" style="width:66px">尺寸</th>
+      <th class="num" style="width:40px">推荐</th><th style="width:76px">方法</th>
+      <th style="width:44px"></th><th style="width:28px"></th><th style="width:30px"></th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+  renderLightsSummary();
+
+function renderLightsSummary(){
+  const g = LAST_CATS.filter(c=>c.light==='green').length;
+  const y = LAST_CATS.filter(c=>c.light==='yellow').length;
+  const r = LAST_CATS.filter(c=>c.light==='red').length;
+  const el = $('lightSummary');
+  if(el) el.innerHTML =
+    `<span style="color:#22c55e">● ${g}</span>　<span style="color:#f59e0b">● ${y}</span>　`
+    + `<span style="color:#ef4444">● ${r}</span>`;
+}
+}
+
+function renderSuggestHint(){
+  const s = LAST_SUG;
+  if(!s){ $('suggestHint').textContent = ''; return; }
+  const f = n => (n||0).toLocaleString('en-US');
+  $('suggestHint').innerHTML =
+    `当前 <b>${f(s.current_elements)}</b> 单元｜预算 <b>${f(s.budget_elements)}</b><br>`
+    + `特征尺寸估算 <b>${f(s.est_feature)}</b>（更细）；预算版估算 <b>${f(s.est_elements)}</b>`
+    + (s.scale > 1.001 ? `（放大 ×${s.scale}）` : '')
+    + `<br>范围 ${s.floor}~${s.cap} mm${s.over_budget ? ' <span style="color:#ffd48a">⚠ 预算版仍可能超</span>' : ''}`;
+}
+
+function applySuggestion(mode){
+  if(!LAST_CATS.length){ toast('先点「刷新类别」'); return; }
+  const key = (mode === 'feature') ? 'size_feature' : 'size_recommended';
+  let n = 0;
+  document.querySelectorAll('.size-input').forEach(el => {
+    const c = LAST_CATS.find(x => x.name === el.dataset.cat);
+    const v = c ? c[key] : null;
+    if(v !== null && v !== undefined){ el.value = v; n++; }
+  });
+  toast(`已填入 ${n} 个${mode==='feature'?'特征':'预算推荐'}尺寸，记得点「应用设置与尺寸」`);
+  log(`推荐尺寸（${mode==='feature'?'特征':'预算'}）：填入 ${n} 个类别`);
+}
+
+/* ---------------- 参数行内展开 ---------------- */
+const PARAM_LABELS = {
+  ElementSize:'单元尺寸', Behavior:'行为', CurvatureNormalAngle:'曲率角',
+  DefeatureSize:'去特征尺寸', GrowthRate:'增长率', LocalMinimumSize:'局部最小尺寸',
+  SizingType:'尺寸类型', SizingTransition:'尺寸过渡', UseCurvatureSize:'曲率尺寸',
+  UseProximitySize:'邻近尺寸', LocalDefeaturingTolerance:'局部去特征容差',
+  SweepNumberDivisions:'扫掠层数', FreeFaceMeshType:'自由面网格类型',
+  SrcSelection:'源面选择', SweepBiasType:'扫掠偏置', ElementOrder:'单元阶次',
+  Algorithm:'算法', ElementsPerGap:'间隙单元数', MappedMesh:'映射网格',
+  FreeMeshType:'自由网格类型', NumberOfDivisions:'分段数', BiasType:'偏置类型',
+  BiasOption:'偏置方式', BiasFactor:'偏置因子', BiasGrowthRate:'偏置增长率',
+  ScopingMethod:'作用域方式',
+};
+let PARAM_STATE = {};   // {cat: {params, showAll}}
+
+async function applyOne(cat){
+  const el = document.querySelector(`.size-input[data-cat="${cat}"]`);
+  const sel = document.querySelector(`.method-sel[data-cat="${cat}"]`);
+  const size = el ? parseFloat(el.value) : NaN;
+  const method = sel ? sel.value : 'Automatic';
+  if(isNaN(size)){ toast('请先填尺寸'); return; }
+  setBusy(true, `应用「${cat}」`);
+  try{
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+      op:'apply', payload:{sizes:{[cat]: size}, methods:{[cat]: method}}
+    })});
+    if(r.ok){
+      const created = (r.created||[]).length ? `，新建 ${r.created.length} 个控制项` : '';
+      log(`已应用「${cat}」：尺寸 ${size} mm，方法 ${method}${created}`);
+      toast(`「${cat}」已应用到网格`);
+      await loadCategories();
+    }else{
+      log('应用失败：' + (r.error||'')); toast('应用失败');
+    }
+  }catch(e){ log('应用异常：'+e); }
+  setBusy(false);
+}
+
+/* 方法改变：若参数面板已展开，重新加载（扫掠项随方法出现/消失） */
+function onMethodChange(cat, val){
+  const det = document.getElementById('det_' + cat);
+  if(det && !det.hidden){
+    det.hidden = true;
+    toggleParams(cat);          // 重新拉取
+  }
+}
+
+async function toggleParams(cat){
+  const row = document.getElementById('det_' + cat);
+  if(!row) return;
+  if(!row.hidden){ row.hidden = true; return; }
+  row.hidden = false;
+  const cell = row.firstElementChild;
+  cell.innerHTML = '<div class="muted">正在读取参数…</div>';
+  const sel = document.querySelector(`.method-sel[data-cat="${cat}"]`);
+  const method = sel ? sel.value : 'Automatic';
+  try{
+    // 精简版参数：只用 Defeature Size / Capture Curvature / Min / Nor
+    // （扫掠时附加 Src/Trg Selection 与层数）
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+      op:'cat_params_v2',
+      payload:{category: cat, method: method, control: 'METHOD_' + cat}})});
+    if(!r.ok){
+      cell.innerHTML = `<div class="muted" style="color:#ffb4b4">${r.error||'读取失败'}</div>`;
+      return;
+    }
+    PARAM_STATE[cat] = {params: r.params || [], showAll:false, method: method,
+                        control: 'METHOD_' + cat};
+    renderParams(cat);
+  }catch(e){
+    cell.innerHTML = `<div class="muted" style="color:#ffb4b4">异常：${e}</div>`;
+  }
+}
+
+function paramField(cat, p){
+  const label = PARAM_LABELS[p.api] || p.api;
+  const dis = p.readonly ? 'disabled' : '';
+  const onchg = (p.kind === 'bool')
+    ? `onchange="setParam('${cat}','${p.api}', this.checked)"`
+    : `onchange="setParam('${cat}','${p.api}', this.value)"`;
+  let input;
+  if(p.kind === 'enum'){
+    input = `<select ${dis} ${onchg} style="background:var(--panel2);border:1px solid var(--line);
+      color:var(--fg);border-radius:5px;padding:3px 6px;font-size:12px;min-width:120px">
+      ${(p.options||[]).map(o=>`<option value="${o}"${o===p.value?' selected':''}>${o}</option>`).join('')}
+      </select>`;
+  }else if(p.kind === 'bool'){
+    input = `<input type="checkbox" ${dis} ${p.value==='True'?'checked':''} ${onchg}
+      style="width:16px;height:16px">`;
+  }else{
+    const v = String(p.value||'').split('[')[0].trim();
+    input = `<input type="text" ${dis} value="${v}" ${onchg}
+      style="background:var(--panel2);border:1px solid var(--line);color:var(--fg);
+      border-radius:5px;padding:3px 6px;font-size:12px;width:90px">
+      <span class="muted" style="font-size:11px">${p.unit||''}</span>`;
+  }
+  return `<div style="display:flex;align-items:center;gap:6px;margin:3px 0">
+    <span style="width:104px;color:var(--dim);font-size:12px" title="${p.api}">${label}</span>
+    ${input}</div>`;
+}
+
+function renderParams(cat){
+  const st = PARAM_STATE[cat];
+  const row = document.getElementById('det_' + cat);
+  const cell = row.firstElementChild;
+  const mLabel = {Automatic:'自动', Tetrahedrons:'四面体', HexDominant:'六面体主导',
+                  Sweep:'扫掠', MultiZone:'多区域', CutCell:'切割单元'}[st.method||'Automatic']
+                  || st.method || '自动';
+  if(!st.params.length){
+    cell.innerHTML = `<div class="muted">该控制项没有可调参数。</div>`;
+    return;
+  }
+  const left = st.params.filter(p => p.scope !== 'control');
+  const right = st.params.filter(p => p.scope === 'control');
+  const block = (title, list) => list.length
+    ? `<div style="margin:4px 0 6px">
+         <div style="color:#9fd2ff;font-size:12px;margin-bottom:2px">${title}</div>
+         <div style="display:grid;grid-template-columns:1fr;gap:2px;padding-left:8px">
+           ${list.map(p=>paramField(cat,p)).join('')}
+         </div></div>`
+    : '';
+  cell.innerHTML =
+    `<div class="muted" style="font-size:11.5px;margin-bottom:4px">
+       当前方法：<b style="color:#9fd2ff">${mLabel}</b>
+     </div>`
+    + block('网格级设置', left)
+    + block('扫掠设置', right);
+}
+
+function toggleAllParams(cat){
+  PARAM_STATE[cat].showAll = !PARAM_STATE[cat].showAll;
+  renderParams(cat);
+}
+
+async function setParam(cat, apiName, value){
+  try{
+    const st = PARAM_STATE[cat] || {};
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+      op:'cat_params_v2',
+      payload:{category: cat, method: st.method || 'Automatic',
+               control: 'METHOD_' + cat, set: {[apiName]: value}}})});
+    if(r.ok && !(r.errors||[]).length){
+      log(`${cat}.${apiName} = ${value}`);
+      if(PARAM_STATE[cat]){
+        const p = PARAM_STATE[cat].params.find(x=>x.api===apiName);
+        if(p) p.value = (typeof value === 'boolean') ? (value?'True':'False') : value;
+      }
+    }else{
+      log(`设置失败 ${cat}.${apiName}：${(r.errors||[]).join('；')||r.error||''}`);
+      toast('设置失败：' + (r.error||''));
+    }
+  }catch(e){ log('设置异常：'+e); }
+}
+
+/* ---------------- 单元数排行 ---------------- */
+/* ---------------- 多 Mechanical 实例切换 ---------------- */
+let AGENTS = [], AGENT_TARGET = null;
+
+async function loadAgents(){
+  const sel = $('agentSel');
+  if(!sel) return;
+  try{
+    const r = await api('/api/agents');
+    AGENTS = r.agents || [];
+    AGENT_TARGET = r.target;
+    if(AGENTS.length <= 1){
+      sel.style.display = 'none';
+      return;
+    }
+    sel.style.display = '';
+    sel.innerHTML = AGENTS.map(a => {
+      const label = (a.project ? a.project : ('实例 PID ' + a.pid))
+        + ' · PID ' + a.pid + (a.busy ? ' · 忙' : '');
+      return `<option value="${a.pid}"${a.pid === AGENT_TARGET ? ' selected' : ''}>${label}</option>`;
+    }).join('');
+  }catch(e){ /* 忽略 */ }
+}
+
+async function selectAgent(pid){
+  try{
+    const r = await api('/api/agent/select', {method:'POST',
+      body: JSON.stringify({pid: pid})});
+    if(r.ok){
+      log('已切换到实例 PID ' + pid);
+      toast('已切换 Mechanical 实例');
+      await loadAgents();
+  loadExperience();
+  renderFlow();
+      await refresh();
+      await loadCategories();
+      loadProject();
+    }else{ toast('切换失败'); }
+  }catch(e){ log('切换异常：'+e); }
+}
+
+/* ---------------- 当前模型文件名 ---------------- */
+async function loadProject(){
+  const el = $('projName');
+  if(!el) return;
+  try{
+    const r = await api('/api/project');
+    if(r.ok && r.name){
+      el.textContent = '模型：' + r.name;
+      el.title = r.path || r.name;
+    }else{
+      el.textContent = '模型：未读取到工程文件';
+      el.title = r.error || '';
+    }
+  }catch(e){
+    el.textContent = '模型：读取失败';
+  }
+}
+
+async function loadCounts(){
+  const box = $('cntList');
+  if(!box) return;
+  box.innerHTML = '<div class="muted">读取中…</div>';
+  try{
+    const r = await api('/api/body_counts');
+    if(!r.ok){ box.innerHTML = `<div class="muted">${r.error||'读取失败'}</div>`; return; }
+    const rows = (r.bodies || []).filter(x => x.elements > 0);
+    const total = r.total_elements || 1;
+    $('cntSum').textContent = `（合计 ${fmt(total)} 单元）`;
+    if(!rows.length){ box.innerHTML = '<div class="muted">还没有网格数据。</div>'; return; }
+    box.innerHTML = `<table>
+      <thead><tr><th style="width:26px">#</th><th>体</th>
+        <th class="num" style="width:70px">单元</th>
+        <th class="num" style="width:54px">占比</th></tr></thead>
+      <tbody>${rows.slice(0, 40).map((x, i) => {
+        const pct = 100.0 * x.elements / total;
+        const color = pct > 5 ? '#ffb4b4' : (pct > 1.5 ? '#ffd48a' : 'var(--fg)');
+        return `<tr><td class="muted">${i+1}</td>
+          <td title="${(x.name||'').replace(/"/g,'')}" style="overflow:hidden;
+              text-overflow:ellipsis;white-space:nowrap;max-width:210px">${x.name||''}</td>
+          <td class="num" style="color:${color}">${fmt(x.elements)}</td>
+          <td class="num muted">${pct.toFixed(1)}%</td></tr>`;
+      }).join('')}</tbody></table>`;
+  }catch(e){ box.innerHTML = `<div class="muted">异常：${e}</div>`; }
+}
+
+/* ---------------- 全局扫描 ---------------- */
+let SCAN = null;
+
+let SCAN_GROUPS = {};      // {部位: [体名...]}
+let OPEN_GROUPS = {};      // {部位: true} 展开状态
+
+async function runScan(){
+  const box = $('scanList');
+  box.innerHTML = '<div class="muted">识别中…（按尺寸/形状/接触关系判断，不看名字）</div>';
+  setBusy(true, '识别零部件');
+  try{
+    const r = await api('/api/auto_scan');
+    if(!r.ok){
+      box.innerHTML = `<div class="muted" style="color:#ffb4b4">${r.error||'识别失败'}</div>`;
+      setBusy(false); return;
+    }
+    SCAN = r;
+    SCAN_GROUPS = r.groups || {};
+    $('scanSum').textContent = `（${r.total} 体，识别为 ${r.group_count} 个部位）`;
+    renderGroups();
+    log(`识别完成：${r.total} 体 → ${r.group_count} 个部位`);
+  }catch(e){ box.innerHTML = `<div class="muted">异常：${e}</div>`; }
+  setBusy(false);
+}
+
+function renderGroups(){
+  const box = $('scanList');
+  const PRIORITY = ['未分组', '其他'];
+  const names = Object.keys(SCAN_GROUPS).sort((a, b) => {
+    const ia = PRIORITY.indexOf(a), ib = PRIORITY.indexOf(b);
+    if (ia >= 0 || ib >= 0) {
+      // 未分组/其他 永远排最前，两者之间按 PRIORITY 顺序
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    }
+    return SCAN_GROUPS[b].length - SCAN_GROUPS[a].length;
+  });
+  if(!names.length){ box.innerHTML = '<div class="muted">没有识别结果</div>'; return; }
+  const ADD = `<div style="margin-bottom:6px;display:flex;gap:6px">
+    <button class="btn" style="flex:1;font-size:12px" onclick="newGroup()">
+      ＋ 新建分组</button>
+    <button class="btn" style="flex:0 0 auto;font-size:12px"
+            title="还原最近一次删除的分组"
+            onclick="restoreGroup()">↺ 撤销删除</button></div>`;
+  box.innerHTML = ADD + names.map(g => {
+    const items = SCAN_GROUPS[g] || [];
+    const open = !!OPEN_GROUPS[g];
+    const rows = open ? items.map(n => `
+        <div style="display:flex;align-items:center;gap:6px;padding:2px 0 2px 14px;
+             border-bottom:1px solid #1b2430">
+          <span style="flex:1;font-size:11.5px;color:#c7d3e2;overflow:hidden;
+                text-overflow:ellipsis;white-space:nowrap" title="${n}">${n}</span>
+          <select class="move-sel" data-body="${n}"
+                  style="font-size:11px;background:#1c2430;border:1px solid #27313f;
+                         color:#8fa3bd;border-radius:5px;padding:1px 4px;max-width:110px">
+            <option value="">移到…</option>
+            ${names.filter(x => x !== g).map(x =>
+              `<option value="${x}">${x}</option>`).join('')}
+          </select>
+        </div>`).join('') : '';
+    return `<div style="margin-bottom:4px">
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;
+           background:#1a222c;border:1px solid #27313f;border-radius:6px">
+        <span style="font-size:11px;color:#8fa3bd;cursor:pointer;width:12px"
+              onclick="toggleGroup('${g}')">${open ? '▾' : '▸'}</span>
+        <span style="flex:1;font-size:12.5px;color:#9fd2ff;cursor:pointer"
+              onclick="toggleGroup('${g}')">${g}</span>
+        <span class="badge">${items.length}</span>
+        <button class="btn" style="padding:0 6px;font-size:11px"
+                title="重命名该分组"
+                onclick="renameGroup('${g}')">✎</button>
+        <button class="btn" style="padding:0 6px;font-size:11px;background:#3b1d1d;
+                border-color:#5b2a2a;color:#ffb4b4"
+                title="删除该分组（成员移到「其他」）"
+                onclick="deleteGroup('${g}')">🗑</button>
+      </div>${rows}
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.move-sel').forEach(sel => {
+    sel.onchange = e => moveBody(sel.dataset.body, e.target.value, sel);
+  });
+}
+
+function toggleGroup(g){
+  OPEN_GROUPS[g] = !OPEN_GROUPS[g];
+  renderGroups();
+}
+
+async function renameGroup(oldName){
+  const to = prompt(`把分组「${oldName}」改名为：`, oldName);
+  if(!to || to === oldName) return;
+  try{
+    const r = await api('/api/group_rename', {method:'POST',
+      body: JSON.stringify({from: oldName, to: to})});
+    if(r.ok){
+      SCAN_GROUPS[to] = SCAN_GROUPS[oldName] || [];
+      delete SCAN_GROUPS[oldName];
+      OPEN_GROUPS[to] = true;
+      renderGroups();
+      loadCategories();
+      log(`分组「${oldName}」→「${to}」（${r.moved} 体）`);
+      toast('已改名（会记住）');
+    }else{ toast('改名失败：' + (r.error||'')); }
+  }catch(e){ log('改名异常：'+e); }
+}
+
+async function newGroup(){
+  const name = prompt('新建分组名称：', '');
+  if(!name) return;
+  try{
+    const r = await api('/api/group_new', {method:'POST',
+      body: JSON.stringify({name: name})});
+    if(r.ok){
+      SCAN_GROUPS[name] = SCAN_GROUPS[name] || [];
+      OPEN_GROUPS[name] = true;
+      renderGroups();
+      loadCategories();
+      log(`已新建分组「${name}」，可把零部件移进来`);
+      toast('已新建分组');
+    }else{ toast('新建失败：' + (r.error||'')); }
+  }catch(e){ log('新建异常：'+e); }
+}
+
+async function deleteGroup(name){
+  const n = (SCAN_GROUPS[name] || []).length;
+  if(!confirm(`删除分组「${name}」？\n\n其中 ${n} 个零部件会被移到「其他」。\n\n确定继续？`)) return;
+  try{
+    const r = await api('/api/group_delete', {method:'POST',
+      body: JSON.stringify({name: name})});
+    if(r.ok){
+      const items = SCAN_GROUPS[name] || [];
+      delete SCAN_GROUPS[name];
+      if(items.length){
+        SCAN_GROUPS['其他'] = (SCAN_GROUPS['其他'] || []).concat(items);
+      }
+      renderGroups();
+      loadCategories();
+      log(`已删除分组「${name}」，${r.moved} 个部件移到「其他」`);
+      toast('分组已删除');
+    }else{ toast('删除失败：' + (r.error||'')); }
+  }catch(e){ log('删除异常：'+e); }
+}
+
+async function restoreGroup(){
+  try{
+    const r = await api('/api/group_restore', {method:'POST', body: '{}'});
+    if(r.ok){
+      log(`已还原分组「${r.restored}」（${r.count} 个部件）`);
+      toast(`已还原「${r.restored}」`);
+      await runScan();     // 重新识别，反映还原结果
+      loadCategories();
+    }else{
+      toast(r.error || '没有可还原的记录');
+    }
+  }catch(e){ log('还原异常：'+e); }
+}
+
+async function moveBody(body, to, sel){
+  if(!to) return;
+  try{
+    const r = await api('/api/body_move', {method:'POST',
+      body: JSON.stringify({body: body, to: to})});
+    if(r.ok){
+      // 本地移动，立刻反映
+      for(const g of Object.keys(SCAN_GROUPS)){
+        const i = SCAN_GROUPS[g].indexOf(body);
+        if(i >= 0){ SCAN_GROUPS[g].splice(i, 1); break; }
+      }
+      if(!SCAN_GROUPS[to]) SCAN_GROUPS[to] = [];
+      SCAN_GROUPS[to].push(body);
+      OPEN_GROUPS[to] = true;
+      renderGroups();
+      log(`已把「${body}」移到「${to}」（会记住）`);
+      toast('已移动并记住');
+    }else{ toast('移动失败'); }
+  }catch(e){ log('移动异常：'+e); }
+}
+
+async function ungroupAll(){
+  if(!confirm('将解散 Geometry 里的所有分组文件夹。\n\n• 体不会被删除，会回到 Geometry 根下\n• 之后可以再点「② 重命名+分组」重建\n\n确定继续？')) return;
+  setBusy(true, '取消分组');
+  try{
+    const r = await api('/api/ungroup', {method:'POST', body: JSON.stringify({names:['*']})});
+    if(r.ok){
+      log(`已取消 ${r.count || 0} 个分组（体已保留）`);
+      if((r.failed||[]).length) log('部分失败：' + r.failed.slice(0,3).join(' | '));
+      toast('分组已取消，体保留');
+      // 只清空显示，不自动扫描（等你手动点「① 扫描模型」）
+      SCAN_GROUPS = {};
+      OPEN_GROUPS = {};
+      SCAN = null;
+      const _box = $('scanList');
+      if(_box) _box.innerHTML = '<div class="muted">已取消全部分组。点「① 扫描模型」重新识别。</div>';
+      const _sum = $('scanSum');
+      if(_sum) _sum.textContent = '';
+      await loadCategories();
+    }else{ log('取消失败：' + (r.error||'')); toast('取消失败'); }
+  }catch(e){ log('取消异常：'+e); }
+  setBusy(false);
+}
+
+async function applyScan(){
+  if(!SCAN){ toast('先点「扫描模型」'); return; }
+  if(!confirm('将按扫描结果：\n1) 重命名 Geometry 中的体（组名_01…）\n2) 建立分组的尺寸控制项\n继续？')) return;
+  setBusy(true, '重命名 + 分组');
+  try{
+    const r = await api('/api/scan_apply', {method:'POST', body: JSON.stringify(
+      {rename: true, geom_group: true, group: false, profile: SCAN.profile})});
+    if(r.ok){
+      log(`重命名 ${r.renamed} 个体，建立 ${r.controls} 个分组控制项`);
+      if((r.errors||[]).length) log('部分失败：' + r.errors.slice(0,3).join(' | '));
+      toast('已完成重命名与分组');
+      await loadCategories();
+      await runScan();
+    }else{
+      log('失败：' + (r.error||'')); toast('执行失败');
+    }
+  }catch(e){ log('异常：'+e); }
+  setBusy(false);
+}
+
+/* ---------------- 7 步流程指示 ---------------- */
+function renderFlow(){
+  const bar = $('flowBar');
+  if(!bar) return;
+  const bridged = $('dot').className.indexOf('on') >= 0;
+  const unitsOk = ($('vUnits') ? $('vUnits').textContent : '').indexOf('NMM') >= 0;
+  const cats = LAST_CATS.length;
+  const st = ($('vMeshState') ? $('vMeshState').textContent : '') || '';
+  const steps = [
+    ['1 桥接+单位', bridged && unitsOk, '点 MeshKit_Check；单位自动设 mm'],
+    ['2 全局扫描', !!SCAN, '扫描模型'],
+    ['3 重命名', !!(SCAN && SCAN.matched), '重命名+分组（或手动改名）'],
+    ['4 分组', cats > 0, '按扫描结果建控制项'],
+    ['5 应用参数', cats > 0, '应用设置与尺寸'],
+    ['6 生成网格', /Solved|NotSolved/.test(st), '生成网格（会自动做前置检查）'],
+    ['7 质量分析', false, '质量报告 → 读取当前指标']
+  ];
+  bar.innerHTML = steps.map(([t, ok, tip]) =>
+    `<span title="${tip}" style="padding:2px 9px;border-radius:11px;
+      background:${ok ? '#123a26' : '#1c2430'};color:${ok ? '#7ee2a8' : '#8fa3bd'};
+      border:1px solid ${ok ? '#1f6f4a' : '#27313f'}">${t}</span>`).join('');
+}
+
+/* ---------------- 整体倍数 ---------------- */
+function scaleAllSizes(){
+  const f = parseFloat($('globalScale').value);
+  if(isNaN(f) || f <= 0){ toast('倍数无效'); return; }
+  let n = 0;
+  document.querySelectorAll('.size-input').forEach(inp => {
+    const cur = parseFloat(inp.value);
+    if(isNaN(cur) || cur <= 0) return;
+    const v = Math.max(2, Math.min(60, Math.round(cur * f * 10) / 10));
+    inp.value = v;
+    n++;
+  });
+  log(`整体倍数 ×${f}：已调整 ${n} 个类别的尺寸（点「应用设置与尺寸」生效）`);
+  toast(n ? `×${f} 已填入 ${n} 个类别` : '表格里没有已填的尺寸');
+}
+
+/* ---------------- 失败体清单（可单独修复） ---------------- */
+let FAILED = [];
+
+function failListBusy(){
+  // 用户正在失败体面板里输入/选择时，不要重绘
+  const el = document.activeElement;
+  if(!el) return false;
+  const box = $('failList');
+  if(!box) return false;
+  return box.contains(el);
+}
+
+function captureFailInputs(){
+  // 把界面上已输入的值写回 FAILED，重绘后不丢
+  try{
+    FAILED.forEach((b, i) => {
+      const q = (cls) => document.querySelector(`.${cls}[data-i="${i}"]`);
+      const s = q('fix-input');
+      if(s && s.value !== '') b.fix_size = parseFloat(s.value);
+      const d = q('fix-def');
+      if(d && d.value !== '') b.defeature = parseFloat(d.value);
+      const m = q('fix-method');
+      if(m) b.method = m.value;
+    });
+  }catch(e){}
+}
+
+async function loadFailed(){
+  const busy = failListBusy();
+  if(busy){ captureFailInputs(); return; }   // 正在输入：只记值，不重绘
+  try{
+    const r = await api('/api/failed');
+    if(!r.ok){
+      $('failCount').textContent = '';
+      $('failList').innerHTML = `<div class="muted">${r.error||'读取失败'}</div>`;
+      return;
+    }
+    captureFailInputs();
+    const _prev = FAILED;
+    FAILED = r.bodies || [];
+    // 服务器没给值、但用户刚填过的，沿用界面值
+    FAILED.forEach((b, i) => {
+      const p = (_prev || []).find(x => x.name === b.name);
+      if(!p) return;
+      if((b.fix_size === null || b.fix_size === undefined) && p.fix_size) b.fix_size = p.fix_size;
+      if((b.defeature === null || b.defeature === undefined) && p.defeature) b.defeature = p.defeature;
+      if(!b.method && p.method) b.method = p.method;
+    });
+    if(r.stale){
+      $('failCount').textContent = '';
+      $('failList').innerHTML = `<div class="muted" style="color:#ffd48a">
+        网格已过期（改了控制项/尺寸后还没重新生成），此时"非 Meshed 体"并不代表失败。
+        <br>点上面的「生成网格」重划后，这里才会列出真正的失败体。</div>`;
+      return;
+    }
+    $('failCount').textContent = FAILED.length ? `（${FAILED.length} 个）` : '（无）';
+    if(!FAILED.length){
+      $('failList').innerHTML = '<div class="muted" style="color:#7ee2a8">当前没有失败体。</div>';
+      return;
+    }
+    $('failList').innerHTML = `<table>
+      <thead><tr><th>体</th><th class="num" style="width:58px">尺寸</th>
+        <th class="num" style="width:58px">去特征</th><th style="width:104px">方法</th>
+        <th style="width:46px"></th></tr></thead>
+      <tbody>${FAILED.map((b,i) => `<tr data-fail="${i}">
+        <td title="${(b.name||'').replace(/"/g,'')}">
+          <span title="${b.meshed?'已划网成功':'仍未成功'}"
+                style="display:inline-block;width:7px;height:7px;border-radius:50%;
+                       margin-right:5px;background:${b.meshed?'#38d17a':'#ffb84d'}"></span>
+          <span style="color:${b.meshed?'#9fe8c0':'#ffd48a'}">${b.name||''}</span>
+          <div class="muted" style="font-size:11px">${b.state||''}${
+            b.min_dim?` · 最薄 ${b.min_dim}mm`:''}${
+            b.fix_size?` · 现有 ${b.fix_size}mm`:''}</div>
+        </td>
+        <td class="num"><input type="number" class="fix-input" data-i="${i}"
+            step="0.5" min="1" max="60" style="width:52px"
+            value="${b.fix_size || ''}" placeholder="mm"></td>
+        <td class="num"><input type="number" class="fix-def" data-i="${i}"
+            step="0.5" min="0" max="20" style="width:52px"
+            value="${b.defeature || ''}" placeholder="mm"
+            title="只对该体生效：写入该体 Sizing 控制项的 Defeature Size"></td>
+        <td><select class="fix-method" data-i="${i}"
+            style="width:100px;background:#1c2430;border:1px solid #27313f;
+                   color:#c7d3e2;border-radius:5px;padding:2px 4px;font-size:11.5px">
+            ${['自动','扫掠','扫掠 + Automatic Thin'].map(m =>
+              `<option${(b.method||'自动')===m?' selected':''}>${m}</option>`).join('')}
+        </select></td>
+        <td><button class="btn" style="padding:2px 7px;font-size:11.5px"
+            onclick="applyBodyFix(${i})">应用</button></td>
+      </tr>`).join('')}</tbody></table>`;
+    // 异步补上"历史建议"（只取前 8 个，避免请求过多）
+    FAILED.slice(0, 8).forEach((b, i) => {
+      api('/api/advice?body=' + encodeURIComponent(b.name)).then(r => {
+        if(!r.ok || !(r.advice || []).length) return;
+        const a = r.advice[0];
+        const cell = document.querySelector(`tr[data-fail="${i}"] td:first-child`);
+        if(!cell) return;
+        const div = document.createElement('div');
+        div.style.cssText = 'font-size:11px;color:#9fd2ff;margin-top:2px';
+        div.textContent = `建议：${actionText(a.action)}（历史 ${a.fixed}/${a.total} 成功）`;
+        cell.appendChild(div);
+      }).catch(() => {});
+    });
+  }catch(e){ /* 忽略 */ }
+}
+
+async function applyAllFailed(alsoMesh){
+  if(!FAILED.length){ toast('当前没有失败体'); return; }
+  const items = [];
+  FAILED.forEach((b, i) => {
+    const el = document.querySelector(`.fix-input[data-i="${i}"]`);
+    const v = el ? parseFloat(el.value) : NaN;
+    if(!isNaN(v)) items.push({body_name: b.name, size: v});
+  });
+  if(!items.length){ toast('没有可用的修复尺寸'); return; }
+  if(alsoMesh && !confirm(`将设置 ${items.length} 个体的修复尺寸并重新生成网格（约 3 分钟）。继续？`)) return;
+
+  setBusy(true, alsoMesh ? '批量设置修复尺寸并重划' : '批量设置修复尺寸');
+  try{
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+      op:'set_bodies_size', payload:{items: items, regenerate: !!alsoMesh}})});
+    const done = (r.results||[]).filter(x=>x.ok).length;
+    log(`批量设置：成功 ${done}/${items.length}`);
+    (r.results||[]).filter(x=>!x.ok).slice(0,5).forEach(x =>
+      log(`  失败 ${x.body}：${x.error||''}`));
+    if(alsoMesh && r.mesh){
+      log(`重划完成：单元 ${fmt(r.mesh.elements)} / 节点 ${fmt(r.mesh.nodes)}，`
+          + `失败 ${r.mesh.failed} 个`);
+      toast(`重划完成，失败体 ${r.mesh.failed} 个`);
+    }else{
+      toast(`已设置 ${done} 个，点「生成网格」生效`);
+    }
+    await loadFailed();
+    refresh();
+  }catch(e){ log('批量设置异常：'+e); }
+  setBusy(false);
+}
+
+async function applyBodySize(i){
+  const b = FAILED[i];
+  if(!b){ return; }
+  const el = document.querySelector(`.fix-input[data-i="${i}"]`);
+  const size = el ? parseFloat(el.value) : NaN;
+  if(isNaN(size)){ toast('请先填修复尺寸'); return; }
+  try{
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify(
+      {op:'set_body_size', payload:{body_name: b.name, size: size}})});
+    if(r.ok){
+      log(`${r.created?'新建':'更新'} ${r.control} = ${size} mm（${b.name}）`);
+      toast(`已设置 ${size} mm，请点「生成网格」生效`);
+      loadFailed(); refresh();
+    }else{
+      log('设置失败：' + (r.error||'')); toast('设置失败');
+    }
+  }catch(e){ log('设置异常：'+e); }
+}
+
+/* ---------------- 错误记录 ---------------- */
+async function loadErrorLog(){
+  try{
+    const r = await api('/api/errorlog');
+    if(!r.ok) return;
+    $('errCount').textContent = r.count ? `（${r.count} 条）` : '（暂无）';
+    $('errList').innerHTML = (r.entries||[]).length
+      ? r.entries.slice().reverse().map(e => {
+          const p = e.split(' | ');
+          return `<div style="padding:3px 0;border-bottom:1px solid #1e2632">
+            <span style="color:#ffb4b4">${p[0]||''}</span>
+            <span class="muted"> · ${p[1]||''} · ${p[4]||''}</span></div>`;
+        }).join('')
+      : '<div class="muted">还没有记录。</div>';
+  }catch(e){ /* 忽略 */ }
+}
+
+/* ---------------- 经验库 ---------------- */
+const ACTION_LABEL = {
+  size: '降低尺寸', sweep: '扫掠', defeature: '去特征', apply: '应用设置',
+  mesh: '重新划分'
+};
+function actionText(a){
+  if(!a) return '—';
+  const t = ACTION_LABEL[a.type] || a.type || '—';
+  if(a.type === 'size') return `${t} → ${a.value}mm`;
+  if(a.type === 'defeature') return `${t} → ${a.value}mm`;
+  if(a.type === 'sweep'){
+    let s = t;
+    if(a.auto_thin) s += ' + Automatic Thin';
+    if(a.divisions) s += ` + ${a.divisions} 层`;
+    return s;
+  }
+  return t;
+}
+
+function expSize(a){
+  if(!a) return '—';
+  if(a.type === 'size' || a.type === 'defeature') return `${a.value}mm`;
+  if(a.type === 'apply' && a.sizes){
+    return Object.entries(a.sizes).map(([k,v]) => `${k}=${v}mm`).join('、');
+  }
+  return '—';
+}
+
+function expMethod(a){
+  if(!a) return '—';
+  if(a.type === 'sweep'){
+    let s = '扫掠';
+    if(a.auto_thin) s += '+Thin';
+    if(a.divisions) s += `·${a.divisions}层`;
+    return s;
+  }
+  if(a.type === 'apply' && a.methods){
+    return Object.entries(a.methods).map(([k,v]) => `${k}=${v}`).join('、');
+  }
+  if(a.type === 'defeature') return '去特征';
+  if(a.type === 'size') return '（不改方法）';
+  return '—';
+}
+
+async function loadExperience(){
+  const box = $('expList');
+  if(!box) return;
+  try{
+    const r = await api('/api/experience');
+    if(!r.ok){ box.innerHTML = '<div class="muted">读取失败</div>'; return; }
+    const s = r.stats || {};
+    $('expSum').textContent = s.total
+      ? `（${s.patterns} 类情况 · 累计 ${s.total} 次 · 有效 ${s.fixed}）` : '（空）';
+    if(!s.total){
+      box.innerHTML = '<div class="muted">还没有经验。网格化后会自动积累。</div>';
+      return;
+    }
+
+    // 明细：每个零件用了什么尺寸/方法
+    const recent = (r.recent || []).slice().reverse();
+    const rows = recent.map(c => {
+      const a = c.action || {};
+      const f = c.features || {};
+      const dims = (f.dims || []).join('×') || '—';
+      const ok = c.outcome === 'fixed';
+      const grp = c.group || '未分类';
+      const body = (c.body || '').replace(/^[0-9]+_[^_]+_/, '');
+      const n = c.count && c.count > 1 ? ` ×${c.count}` : '';
+      return `<tr>
+        <td title="${(c.body||'').replace(/"/g,'')}" style="white-space:nowrap">
+          <span style="color:${ok?'#7ee2a8':'#ffd48a'}">${grp}</span>
+          <div class="muted" style="font-size:10.5px">${body}${n}</div>
+        </td>
+        <td class="num" style="white-space:nowrap">${expSize(a)}</td>
+        <td style="white-space:nowrap">${expMethod(a)}</td>
+        <td class="muted" style="font-size:10.5px;white-space:nowrap">${dims}</td>
+        <td style="white-space:nowrap">
+          <span style="color:${ok?'#7ee2a8':'#ff8b8b'}">${ok?'成功':'无效'}</span>
+          <div class="muted" style="font-size:10px">${(c.last_ts||c.ts||'').slice(5,16)}</div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const acts = (s.top_actions || []).slice(0, 3).map(([k, n]) => {
+      let a = null;
+      try{ a = JSON.parse(k); }catch(e){}
+      return `<span class="muted">${actionText(a)} ×${n}　</span>`;
+    }).join('');
+
+    box.innerHTML = `
+      <div style="margin-bottom:6px">${acts}</div>
+      <table style="font-size:11.5px">
+        <thead><tr>
+          <th>部位 / 零件</th><th class="num">尺寸</th><th>方法</th>
+          <th>尺寸(mm)</th><th>结果</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }catch(e){ /* 忽略 */ }
+}
+
+/* ---------------- 模型记忆 ---------------- */
+let MEMS = [];
+
+async function loadMemory(){
+  try{
+    const r = await api('/api/memory');
+    if(!r.ok) return;
+    MEMS = r.items || [];
+    renderMemory();
+  }catch(e){ /* 忽略 */ }
+}
+
+function renderMemory(){
+  const el = $('memList');
+  if(!MEMS.length){
+    el.innerHTML = '<div class="muted">还没有记忆。填名字点「存入」把当前模型存下来。</div>';
+    return;
+  }
+  el.innerHTML = MEMS.map((m, i) => `
+    <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;
+         background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 9px">
+      <div style="flex:1;min-width:0;cursor:pointer"
+           onclick="toggleMemCats(${i})">
+        <div style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+             title="${(m.name||'').replace(/"/g,'')}">${m.name||''}${
+          m.active ? ` <span class="badge" style="background:#123a26;color:#7ee2a8;
+             font-size:10px;margin-left:4px">使用中</span>` : ''
+        } <span class="muted" style="font-size:10px">▾</span></div>
+        <div class="muted" style="font-size:11px">${m.categories} 类 · ${m.body_count} 体 · ${(m.created||'').slice(5)}</div>
+      </div>
+      <button class="btn" style="padding:2px 8px;font-size:11.5px"
+              onclick="matchMemory(${i}, false)">识别</button>
+      <button class="btn primary" style="padding:2px 8px;font-size:11.5px"
+              onclick="matchMemory(${i}, true)">应用</button>
+      <button class="btn" style="padding:2px 7px;font-size:11.5px;background:#3b1d1d;
+              border-color:#5b2a2a;color:#ffb4b4" onclick="deleteMemory(${i})">删</button>
+    </div>
+    <div id="memCats${i}" hidden style="margin:-2px 0 8px 8px"></div>`).join('');
+}
+
+async function capturePlan(){
+  const name = ($('memName').value || '').trim() || ('我规划 ' + new Date().toLocaleString('zh-CN', {hour12:false}).slice(5));
+  if(!confirm(`读取 Mechanical 里当前的所有网格控制项，按你的划分存成记忆「${name}」？`)) return;
+  setBusy(true, '读取当前划分');
+  try{
+    const r = await api('/api/memory/capture', {method:'POST', body: JSON.stringify({name})});
+    if(r.ok){
+      const c = (r.controls || []).length;
+      const nc = (r.profile.categories || []).length;
+      const unc = (r.uncovered || []).length;
+      log(`已记录你的划分：${c} 个控制项 → ${nc} 个类别；未覆盖体 ${unc} 个`);
+      (r.controls || []).slice(0, 12).forEach(x =>
+        log(`   ${x.name}：${x.count} 体，尺寸 ${x.size_mm || '-'}，方法 ${x.method || '-'}`));
+      if(unc) (r.uncovered || []).slice(0, 6).forEach(n => log('   未覆盖：' + n));
+      toast('已保存你的规划');
+      $('memName').value = '';
+      MEMS = r.items || [];
+      renderMemory();
+    }else{
+      log('读取划分失败：' + (r.error||'')); toast('读取失败');
+    }
+  }catch(e){ log('读取划分异常：'+e); }
+  setBusy(false);
+}
+
+async function saveMemory(){
+  const name = ($('memName').value || '').trim();
+  if(!name){ toast('先填记忆名称'); $('memName').focus(); return; }
+  setBusy(true, '保存模型记忆');
+  try{
+    const r = await api('/api/memory/save', {method:'POST', body: JSON.stringify({name})});
+    if(r.ok){
+      $('memName').value = '';
+      log(`已保存模型记忆「${name}」：${(r.profile.categories||[]).length} 个类别 / ${r.profile.body_count} 体`);
+      toast('已保存模型记忆');
+      MEMS = r.items || [];
+      renderMemory();
+    }else{ log('保存记忆失败：' + (r.error||'')); toast('保存失败'); }
+  }catch(e){ log('保存记忆异常：'+e); }
+  setBusy(false);
+}
+
+async function matchMemory(i, apply){
+  try{
+    const _m = MEMS[i];
+    if(_m) await api('/api/memory/use', {method:'POST', body: JSON.stringify({name: _m.name})});
+  }catch(e){ /* 忽略 */ }
+  const m = MEMS[i];
+  if(!m) return;
+  setBusy(true, apply ? '按记忆识别并应用' : '按记忆识别');
+  try{
+    const r = await api('/api/memory/plan', {method:'POST', body: JSON.stringify(
+      {name: m.name, apply: !!apply})});
+    if(!r.ok){ log('识别失败：' + (r.error||'')); setBusy(false); return; }
+    const matched = r.matched_bodies || 0;
+    const total = r.total_bodies || 0;
+    const un = (r.unmatched || []).length;
+    log(`记忆「${m.name}」识别：匹配 ${matched}/${total} 体，未匹配 ${un}`);
+    (r.unmatched || []).slice(0, 8).forEach(n => log('   未匹配：' + n));
+    if(apply && r.applied){
+      log(`建控制项：${(r.applied.created||[]).length} 个；方法 ${(r.applied.methods||[]).length} 个`);
+      (r.applied.errors || []).slice(0, 5).forEach(e => log('   失败：' + e));
+      toast('已按记忆建好控制项，点「生成网格」生效');
+      await loadCategories();
+    }else{
+      toast(`识别完成：匹配 ${matched}/${total} 体`);
+    }
+  }catch(e){ log('识别异常：'+e); }
+  setBusy(false);
+}
+
+async function toggleMemCats(i){
+  const m = MEMS[i];
+  if(!m) return;
+  const box = $('memCats' + i);
+  if(!box) return;
+  if(!box.hidden){ box.hidden = true; return; }
+  box.hidden = false;
+  box.innerHTML = '<div class="muted">读取中…</div>';
+  try{
+    const r = await api('/api/memory/detail', {method:'POST', body: JSON.stringify({name: m.name})});
+    if(!r.ok){ box.innerHTML = `<div class="muted">${r.error||'读取失败'}</div>`; return; }
+    box.innerHTML = `<div style="background:#141a22;border:1px solid var(--line);
+        border-radius:7px;padding:7px 9px">
+      ${(r.categories||[]).map(c => `
+        <div style="display:flex;align-items:center;gap:4px;padding:2px 0">
+          <span style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis;
+                white-space:nowrap">${c.name}</span>
+          <span class="muted" style="font-size:11px">${c.count}</span>
+          <button class="btn" style="padding:1px 6px;font-size:10.5px"
+            onclick="renameMemCat(${i}, ${JSON.stringify(c.name).replace(/"/g,'&quot;')})">改名</button>
+        </div>`).join('')}
+    </div>`;
+  }catch(e){ box.innerHTML = `<div class="muted">异常：${e}</div>`; }
+}
+
+async function renameMemCat(i, oldName){
+  const m = MEMS[i];
+  if(!m) return;
+  const nn = prompt(`「${oldName}」改成什么名字？`, oldName);
+  if(nn === null) return;
+  const newName = nn.trim();
+  if(!newName || newName === oldName) return;
+  try{
+    const r = await api('/api/memory/rename', {method:'POST', body: JSON.stringify(
+      {name: m.name, from: oldName, to: newName})});
+    if(r.ok){
+      log(`类别改名：${oldName} → ${newName}`);
+      toast('已改名');
+      await toggleMemCats(i);
+      await toggleMemCats(i);
+    }else{ log('改名失败：' + (r.error||'')); toast('改名失败'); }
+  }catch(e){ log('改名异常：'+e); }
+}
+
+async function deleteMemory(i){
+  const m = MEMS[i];
+  if(!m) return;
+  if(!confirm(`删除记忆「${m.name}」？`)) return;
+  try{
+    const r = await api('/api/memory/delete', {method:'POST', body: JSON.stringify({name: m.name})});
+    if(r.ok){ MEMS = r.items || []; renderMemory(); toast('已删除'); }
+  }catch(e){ log('删除记忆异常：'+e); }
+}
+
+/* ---------------- 常用配置 ---------------- */
+let FAVS = [];
+
+async function loadFavorites(){
+  try{
+    const r = await api('/api/favorites');
+    if(!r.ok) return;
+    FAVS = r.items || [];
+    renderFavorites();
+  }catch(e){ /* 静默 */ }
+}
+
+function renderFavorites(){
+  const el = $('favList');
+  if(!FAVS.length){
+    el.innerHTML = `<div class="muted">还没有保存过配置。填个名字点「保存」即可。</div>`;
+    return;
+  }
+  el.innerHTML = FAVS.map((f, i) => {
+    const nSize = Object.keys(f.sizes || {}).length;
+    const nMethod = Object.keys(f.methods || {}).length;
+    return `<div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;
+         background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 9px">
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+             title="${(f.name||'').replace(/"/g,'')}">${f.name||'配置'}</div>
+        <div class="muted" style="font-size:11px">${nSize} 尺寸 · ${nMethod} 方法${f.uses?` · 用 ${f.uses} 次`:''}</div>
+      </div>
+      <button class="btn" style="padding:2px 7px;font-size:11.5px"
+              onclick="renameFavorite(${i})">改名</button>
+      <button class="btn" style="padding:2px 9px" onclick="applyFavorite(${i})">应用</button>
+      <button class="btn" style="padding:2px 7px;font-size:11.5px;background:#3b1d1d;
+              border-color:#5b2a2a;color:#ffb4b4" onclick="deleteFavorite(${i})"
+              title="删除这套配置">删除</button>
+    </div>`;
+  }).join('');
+}
+
+async function saveFavorite(){
+  const name = ($('favName').value || '').trim();
+  if(!name){ toast('先填一个配置名称'); $('favName').focus(); return; }
+  const sizes = readSizesFromUI();
+  const methods = readMethodsFromUI();
+  if(!Object.keys(sizes).length){ toast('表格里没有尺寸可保存'); return; }
+  try{
+    const r = await api('/api/favorites/save', {method:'POST', body: JSON.stringify(
+      {name: name, sizes: sizes, methods: methods})});
+    if(r.ok){
+      FAVS = r.items || [];
+      renderFavorites();
+      $('favName').value = '';
+      toast(r.updated ? `已更新「${name}」` : `已保存「${name}」`);
+      log(`${r.updated?'更新':'保存'}常用配置：${name}（${Object.keys(sizes).length} 尺寸）`);
+    }else{ toast('保存失败'); }
+  }catch(e){ log('保存异常：'+e); }
+}
+
+async function renameFavorite(i){
+  const f = FAVS[i];
+  if(!f){ return; }
+  const name = prompt('新名称', f.name || '');
+  if(name === null) return;
+  try{
+    const r = await api('/api/favorites/rename', {method:'POST', body: JSON.stringify(
+      {from: f.name, to: name})});
+    if(r.ok){ FAVS = r.items || []; renderFavorites(); toast('已改名'); }
+    else { toast('改名失败'); }
+  }catch(e){ log('改名失败：'+e); }
+}
+
+async function deleteFavorite(i){
+  const f = FAVS[i];
+  if(!f){ return; }
+  if(!confirm(`删除配置「${f.name||'配置'}」？`)) return;
+  try{
+    const r = await api('/api/favorites/delete', {method:'POST', body: JSON.stringify(
+      {name: f.name})});
+    if(r.ok){
+      FAVS = r.items || [];
+      renderFavorites();
+      toast('已删除该配置');
+      log(`已删除常用配置：${f.name||''}`);
+    }else{ toast('删除失败'); }
+  }catch(e){ log('删除异常：'+e); }
+}
+
+async function applyFavorite(i){
+  const f = FAVS[i];
+  if(!f){ return; }
+  const sizes = f.sizes || {};
+  const methods = f.methods || {};
+  let n = 0;
+  document.querySelectorAll('.size-input').forEach(el => {
+    const v = sizes[el.dataset.cat];
+    if(v !== undefined){ el.value = v; n++; }
+  });
+  document.querySelectorAll('.method-sel').forEach(el => {
+    const v = methods[el.dataset.cat] || 'Automatic';
+    el.value = v;
+  });
+  toast(`已套用常用配置（${n} 个尺寸），点「应用设置与尺寸」生效`);
+  log(`套用常用配置：尺寸 ${n} 项，方法 ${Object.keys(methods).length} 项`);
+}
+
+async function clearAll(){
+  if(!confirm('将删除 Mechanical 里所有网格控制项（尺寸/方法/扫掠等），并清空本软件的尺寸与方法配置。\n此操作不可撤销，确定继续？')) return;
+  setBusy(true, '清理全部配置');
+  try{
+    const r = await api('/api/clear', {method:'POST', body: '{}'});
+    if(r.ok){
+      log(`已删除 ${r.count} 个控制项，剩余 ${r.remaining}`);
+      if(r.failed && r.failed.length) log('删除失败：' + r.failed.join('、'));
+      toast('已清理全部配置');
+      await loadConfig();
+      await loadCategories();
+    }else{
+      log('清理失败：' + (r.error||''));
+      toast('清理失败');
+    }
+  }catch(e){ log('清理异常：'+e); }
+  setBusy(false);
+}
+
+async function loadCategories(){
+  try{
+    const r = await api('/api/categories');
+    if(!r.ok){
+      $('catHint').innerHTML = '<span style="color:#ffb4b4">' + (r.error||'读取失败') + '</span>';
+      if(CFG && CFG.sizes) renderCategories(
+        Object.keys(CFG.sizes).map(k => ({name:k, bodies:0, size_mm:CFG.sizes[k],
+                                          method:(CFG.methods||{})[k]||'Automatic'})));
+      return;
+    }
+    LAST_CATS = r.categories || [];
+    LAST_SUG = r.suggestion || null;
+    renderCategories(LAST_CATS, r.methods_available);
+    const thin = LAST_CATS.filter(c=>c.is_thin_cat).length;
+    const shell = LAST_CATS.filter(c=>c.is_shell_cat).length;
+    $('catHint').innerHTML = `模型共 <b>${r.total_bodies}</b> 个体，归为 <b>${LAST_CATS.length}</b> 个类别`
+      + (shell?`，其中 <b style="color:#9fd2ff">${shell}</b> 类含壳体`:'')
+      + (thin?`，<b style="color:#ffd48a">${thin}</b> 类含薄板`:'') + '。';
+    renderSuggestHint();
+    loadFavorites();
+    log(`类别扫描完成：${LAST_CATS.length} 类 / ${r.total_bodies} 体`);
+  }catch(e){ log('类别读取异常：'+e); }
+}
+function readSettingsFromUI(){
+  return {
+    ElementSize: +$('sElementSize').value,
+    MinimumSize: +$('sMinimumSize').value,
+    DefeatureTolerance: +$('sDefeatureTolerance').value,
+    CurvatureNormalAngle: +$('sCurvatureNormalAngle').value,
+    CaptureCurvature: true,
+    CaptureProximity: $('sCaptureProximity').checked,
+  };
+}
+function readSizesFromUI(){
+  const out = {};
+  document.querySelectorAll('.size-input').forEach(el => {
+    const v = parseFloat(el.value);
+    if(!isNaN(v)) out[el.dataset.cat] = v;
+  });
+  return out;
+}
+function readMethodsFromUI(){
+  const out = {};
+  document.querySelectorAll('.method-sel').forEach(el => out[el.dataset.cat] = el.value);
+  return out;
+}
+
+/* ---------------- 操作 ---------------- */
+async function applyAll(){
+  setBusy(true, '应用设置与尺寸');
+  try{
+    const _sizes = readSizesFromUI();
+    const _methods = readMethodsFromUI();
+    const _divs = {};
+    Object.keys(_sizes).forEach(k => {
+      // 只有标记为薄板的类别才带 2 层；其余扫掠交给代理按壁厚判断
+      const cat = (LAST_CATS || []).find(c => c.name === k) || {};
+      if(_methods[k] === 'Sweep' && (cat.is_thin_cat || (CFG.thin_cats || []).indexOf(k) >= 0)) _divs[k] = 2;
+    });
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+      op:'apply', payload:{settings: readSettingsFromUI(),
+                           sizes: _sizes,
+                           methods: _methods,
+                           divisions: _divs}
+    })});
+    if(!r.ok){ log('应用失败：' + (r.error||'')); toast('应用失败'); }
+    else{
+      log(`已应用：设置 ${r.settings.length} 项，尺寸 ${r.sizes.length} 项`);
+      const m = r.methods || {};
+      if(m.created && m.created.length) log('新建方法控制项：' + m.created.join('、'));
+      if(m.updated && m.updated.length) log('更新方法控制项：' + m.updated.join('、'));
+      if(m.deleted && m.deleted.length) log('取消方法控制项（改回自动）：' + m.deleted.join('、'));
+      const errs = [].concat(r.errors||[], (m.errors||[]));
+      if(errs.length) log('部分失败：' + errs.join(' | '));
+      toast('设置已应用到 Mechanical');
+      await loadCategories();      // 应用后立刻刷新灯色，不用等自动刷新
+    }
+  }catch(e){ log('应用异常：'+e); }
+  setBusy(false); refresh();
+}
+
+async function analyzeMeshRun(){
+  try{
+    const r = await api('/api/mesh_analyze');
+    if(!r.ok){ log('网格消息分析失败：' + (r.error||'')); return; }
+    const box = $('summary');
+    const fnd = $('findings');
+    if(box){
+      box.textContent = r.summary || '（无消息）';
+    }
+    if(fnd){
+      const issues = r.issues || [];
+      const bodies = r.bodies || [];
+      let html = '';
+      if(issues.length){
+        html += '<div style="font-size:12px;margin-top:8px">按问题归类：</div>';
+        html += issues.map(i => `<div style="margin:6px 0;padding:6px 8px;
+            background:#1b2431;border-left:3px solid #ffb84d;border-radius:4px">
+          <b style="color:#ffd48a">${i.issue}</b>
+          <span class="muted">×${i.count}</span>
+          <div style="font-size:11.5px;color:#9fd2ff;margin-top:2px">→ ${i.advice}</div>
+          ${i.bodies && i.bodies.length ? `<div class="muted" style="font-size:11px;
+              margin-top:2px">涉及：${i.bodies.slice(0,6).join('、')}</div>` : ''}
+        </div>`).join('');
+      }
+      if(bodies.length){
+        html += '<div style="font-size:12px;margin-top:10px">需要处理的体：</div>';
+        html += bodies.slice(0, 8).map(b => `<div style="margin:4px 0;font-size:11.5px">
+          <span style="color:#ffd48a">${b.body}</span>
+          <span class="muted">：${(b.issues||[]).join('、')}</span>
+          <div style="color:#7ee2a8">→ ${b.action}</div></div>`).join('');
+      }
+      if(!html) html = '<div class="muted" style="font-size:12px">没有需要处理的体。</div>';
+      fnd.innerHTML = html;
+    }
+    log(`网格消息分析：${r.total||0} 条，${(r.issues||[]).length} 类问题`);
+  }catch(e){ log('网格消息分析异常：' + e); }
+}
+
+async function generateMesh(){
+  if(!confirm('将清空现有网格并重新生成，可能需要 3~5 分钟。继续？')) return;
+  setBusy(true, '生成网格（可能需要几分钟，请勿操作 Mechanical）');
+  try{
+    const clearFirst = !!($('chkClearMesh') && $('chkClearMesh').checked);
+  const r = await api('/api/op', {method:'POST', body: JSON.stringify(
+    {op:'mesh', payload:{clear: clearFirst}})});
+    if(r.ok){
+      log(`网格完成：单元 ${fmt(r.elements)} / 节点 ${fmt(r.nodes)}（${r.seconds}s）`);
+      const failed = (r.failed_bodies||[]).length;
+      log(failed ? `⚠ 有 ${failed} 个体失败：${r.failed_bodies.map(b=>b.name).join('、')}` : '全部体网格成功');
+      toast(`网格完成：${fmt(r.elements)} 单元 / ${fmt(r.nodes)} 节点`);
+    }else{
+      log('网格失败：' + (r.error||'')); toast('网格生成失败');
+    }
+  }catch(e){ log('网格异常：'+e); }
+  setBusy(false); refresh(); loadFailed(); loadErrorLog(); analyzeMeshRun();
+}
+
+async function applyBodyFix(i){
+  const b = FAILED[i];
+  if(!b) return;
+  const q = (cls) => document.querySelector(`.${cls}[data-i="${i}"]`);
+  const size = q('fix-input') ? parseFloat(q('fix-input').value) : null;
+  const method = q('fix-method') ? q('fix-method').value : '';
+  const def = q('fix-def') ? parseFloat(q('fix-def').value) : null;
+  setBusy(true, '设置失败体参数');
+  try{
+    const r = await api('/api/body_fix', {method:'POST', body: JSON.stringify({
+      name: b.name,
+      size: isNaN(size) ? null : size,
+      method: method,
+      defeature: isNaN(def) ? null : def
+    })});
+    if(r.ok){
+      log(`「${b.name}」已设置：` + (r.actions||[]).join('，'));
+      toast('已应用');
+      await loadFailed();
+    }else{
+      log('设置失败：' + (r.error || (r.errors||[]).join('；')));
+      toast('设置失败');
+    }
+  }catch(e){ log('设置异常：'+e); }
+  setBusy(false);
+}
+
+async function fixFailed(){
+  if(!confirm('将自动把失败体从 Sweep 摘出并减半尺寸，重划最多 2 轮。继续？')) return;
+  setBusy(true, '自动修复失败体');
+  try{
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+      op:'fix_failed', payload:{rounds:2, floor_mm:2}
+    })});
+    (r.rounds_log||[]).forEach(l => log(l));
+    log(`修复结束：单元 ${fmt(r.elements)} / 节点 ${fmt(r.nodes)}，仍失败 ${(r.still_failed||[]).length} 个`);
+    toast(r.ok ? '全部修复成功' : '仍有失败体，见日志');
+  }catch(e){ log('修复异常：'+e); }
+  setBusy(false); refresh();
+}
+
+async function runHoleQuality(){
+  setBusy(true, '圆孔区域质量分析');
+  try{
+    const r = await api('/api/hole_quality', {method:'POST', body: JSON.stringify({force: true})});
+    const d = (r && r.data) || {};
+    if(!r.ok){ log('圆孔质量失败：' + (r.error||'')); toast('失败'); setBusy(false); return; }
+    if(d.error){ log('圆孔质量：' + d.error); toast(d.error); setBusy(false); return; }
+    log(`圆孔区域：${d.cats.join('、')}，共 ${d.total} 体，不合格 ${(d.offenders||[]).length} 体`);
+    (d.offenders||[]).slice(0,8).forEach(o => {
+      log(`  ${o.name}：平均 ${fmtNum(o.avg)}，最差 ${fmtNum(o.min)}，${o.verdict}`);
+    });
+    toast(`圆孔质量完成：不合格 ${(d.offenders||[]).length} 体`);
+    log('详情看「质量报告（新页面）」的"零、圆孔区域质量"一节');
+  }catch(e){ log('圆孔质量异常：'+e); }
+  setBusy(false);
+}
+
+async function qualityReport(){
+  setBusy(true, '生成质量报告');
+  try{
+    const r = await api('/api/op', {method:'POST', body: JSON.stringify({op:'quality'})});
+    if(r.ok){
+      $('reportCard').hidden = false;
+      $('reportText').value = r.report || '';
+      log('质量报告已生成：' + (r.report_path||''));
+      toast('质量报告已生成');
+    }else{ log('报告失败：' + (r.error||'')); }
+  }catch(e){ log('报告异常：'+e); }
+  setBusy(false);
+}
+
+async function failList(){
+  setBusy(true, '读取失败体清单');
+  try{
+    const st = await api('/api/status');
+    if(st.ok){
+      const f = st.failed_bodies || [];
+      log(f.length ? `失败体 ${f.length} 个：` : '没有失败体');
+      f.forEach(b => log(`  ${b.name}  [${b.state}]`));
+      LAST_STATUS = st; renderStatus(st);
+    }
+  }catch(e){ log('读取异常：'+e); }
+  setBusy(false);
+}
+
+async function aiAnalyze(){
+  setBusy(true, 'AI 分析中');
+  try{
+    const quality = $('reportText').value || '';
+    const r = await api('/api/ai', {method:'POST', body: JSON.stringify({quality})});
+    if(!r.ok){ log('AI 失败：'+(r.error||'')); setBusy(false); return; }
+    const a = r.analysis;
+    LAST_STATUS = null;
+    $('summary').textContent = a.summary || '';
+    $('findings').innerHTML = (a.findings||[]).map(f => `
+      <div class="finding ${f.level}">
+        <div class="t">${f.title}<span class="badge ${f.level}">${f.level}</span></div>
+        <div class="d">${(f.detail||'').replace(/</g,'&lt;')}</div>
+        <div class="a">→ ${(f.action||'').replace(/</g,'&lt;')}</div>
+      </div>`).join('');
+    if(a.llm){
+      $('llmBox').hidden = false;
+      $('llmText').textContent = a.llm;
+      log('大模型分析完成');
+    }else{
+      $('llmBox').hidden = true;
+      if(a.llm_error) log('大模型未返回：' + a.llm_error + '（可只依赖规则引擎）');
+    }
+    log('规则诊断完成：' + (a.findings||[]).length + ' 条');
+  }catch(e){ log('AI 异常：'+e); }
+  setBusy(false);
+}
+
+/* ---------------- 事件绑定 ---------------- */
+$('btnRefresh').onclick = refresh;
+$('btnStop').onclick = cancelOp;
+$('btnFavSave').onclick = saveFavorite;
+$('btnMemSave').onclick = saveMemory;
+$('btnMemCapture').onclick = capturePlan;
+$('btnScale').onclick = scaleAllSizes;
+$('btnApply').onclick = applyAll;
+$('btnMesh').onclick = generateMesh;
+$('btnFix').onclick = fixFailed;
+$('btnQuality').onclick = () => { window.open('/report', '_blank'); };
+  const _bma = $('btnMeshAnalyze'); if(_bma) _bma.onclick = () => analyzeMeshRun();
+$('btnHoleQuality').onclick = runHoleQuality;
+$('btnScan').onclick = runScan;
+$('btnUngroup').onclick = ungroupAll;
+$('btnScanApply').onclick = applyScan;
+$('agentSel').onchange = e => selectAgent(parseInt(e.target.value, 10));
+$('btnFailList').onclick = failList;
+$('btnAI').onclick = aiAnalyze;
+$('btnScanCat').onclick = loadCategories;
+$('btnSuggest').onclick = () => applySuggestion('budget');
+$('btnSuggestFeature').onclick = () => applySuggestion('feature');
+$('btnClearAll').onclick = clearAll;
+$('btnSaveCfg').onclick = async () => {
+  const r = await api('/api/config', {method:'POST', body: JSON.stringify({
+    settings: readSettingsFromUI(), sizes: readSizesFromUI(), methods: readMethodsFromUI()
+  })});
+  if(r.ok){ CFG = r.config; toast('已存为默认方案（尺寸+方法）'); log('默认方案已保存'); }
+};
+$('btnSaveLLM').onclick = async () => {
+  const r = await api('/api/config', {method:'POST', body: JSON.stringify({
+    llm: {api_key: $('llmKey').value.trim(), model: $('llmModel').value.trim() || 'deepseek-chat'}
+  })});
+  if(r.ok){ CFG = r.config; toast('大模型设置已保存'); log('大模型 Key 已保存'); }
+};
+
+/* ---------------- 设置弹窗 ---------------- */
+(function initSettings(){
+  const open = () => {
+    const m = $('settingsModal');
+    if(!m) return;
+    m.style.display = 'flex';
+    if(CFG && CFG.llm){
+      if($('llmKey')) $('llmKey').value = CFG.llm.api_key || '';
+      if($('llmModel')) $('llmModel').value = CFG.llm.model || '';
+    }
+  };
+  const close = () => { const m = $('settingsModal'); if(m) m.style.display = 'none'; };
+  const b = $('btnSettings'); if(b) b.onclick = open;
+  const c = $('btnCloseSettings'); if(c) c.onclick = close;
+  const m = $('settingsModal');
+  if(m) m.onclick = (e) => { if(e.target === m) close(); };
+})();
+
+/* ---------------- 启动 ---------------- */
+(async function init(){
+  await loadConfig();
+  await refresh();
+  if($('dot').className.indexOf('on') >= 0) await loadCategories();
+  loadErrorLog();
+  loadFailed();
+  loadMemory();
+  loadProject();
+  loadAgents();
+  loadExperience();
+  log('MeshKit AI 已就绪。');
+  setInterval(refresh, 15000);
+  setInterval(loadProject, 30000);
+  setInterval(loadAgents, 10000);
+  setInterval(loadExperience, 30000);
+  // 错误日志只在生成网格后扫描一次，不做定时轮询
+  // 失败体只在生成网格 / 手动刷新时读取，不做定时轮询
+  // 深链：?mem=序号 自动展开该记忆的类别列表
+  const mm2 = location.search.match(/[?&]mem=(\d+)/);
+  if(mm2){
+    const mi = parseInt(mm2[1], 10);
+    setTimeout(async () => {
+      if(!MEMS.length) await loadMemory();
+      if(MEMS[mi]) toggleMemCats(mi);
+    }, 1200);
+  }
+  // 深链：?open=类别 自动展开该类别参数
+  const m = location.search.match(/[?&]open=([^&]+)/);
+  if(m && LAST_CATS.length){
+    const cat = decodeURIComponent(m[1]);
+    if(LAST_CATS.some(c => c.name === cat)) setTimeout(() => toggleParams(cat), 300);
+  }
+})();
+</script>
+</body>
+</html>

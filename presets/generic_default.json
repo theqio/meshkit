@@ -1,0 +1,82 @@
+{
+  "_comment": "通用默认预设：任意 Mechanical 结构模型可直接套用，按需改 mesh/quality 段即可。",
+  "_schema": 1,
+  "preset": "generic_default",
+  "meta": {
+    "model_label": "通用结构模型",
+    "note": "默认值面向『装配体 + 二阶四面体』的常规静力分析"
+  },
+  "run": {
+    "dry_run": false,
+    "auto_repair": true,
+    "max_rounds": 4,
+    "keep_best": true,
+    "save_project": false,
+    "console_verbose": true
+  },
+  "mesh": {
+    "element_size_mm": 10.0,
+    "use_adaptive_sizing": false,
+    "resolution": 2,
+    "defeature_tolerance_mm": 0.0,
+    "automatic_mesh_based_defeaturing": true,
+    "capture_curvature": true,
+    "curvature_normal_angle_deg": 0.0,
+    "capture_proximity": false,
+    "growth_rate": 1.2,
+    "transition_ratio": 0.272,
+    "smoothing": "High",
+    "smoothing_iterations": 10,
+    "use_post_smoothing": true,
+    "shape_checking": true,
+    "topology_checking": true,
+    "element_order": "ProgramControlled",
+    "quad_mesh": true,
+    "straight_sided_elements": false,
+    "use_automatic_inflation": false,
+    "physics_preference": "Mechanical"
+  },
+  "budget": {
+    "basis": "elements",
+    "target": 1500000,
+    "hard_cap": 2000000,
+    "size_exponent": 2.2
+  },
+  "controls": [],
+  "quality": {
+    "use_mechanical_limits": true,
+    "metrics": {
+      "ElementQuality":             {"direction": "high", "warn": 0.15, "error": 0.02},
+      "Skewness":                   {"direction": "low",  "warn": 0.85, "error": 0.97},
+      "JacobianRatio":              {"direction": "low",  "warn": 10.0, "error": 50.0},
+      "JacobianRatioCornerNodes":   {"direction": "high", "warn": 0.30, "error": 0.05},
+      "JacobianRatioGaussPoints":   {"direction": "high", "warn": 0.30, "error": 0.05},
+      "AspectRatio":                {"direction": "low",  "warn": 20.0, "error": 200.0},
+      "TetCollapse":                {"direction": "high", "warn": 0.10, "error": 0.01},
+      "MaximumCornerAngle":         {"direction": "low",  "warn": 165.0, "error": 175.0},
+      "MinTriAngle":                {"direction": "high", "warn": 10.0, "error": 2.0},
+      "MaxTriAngle":                {"direction": "low",  "warn": 160.0, "error": 172.0},
+      "WarpingFactor":              {"direction": "low",  "warn": 0.6, "error": 1.0},
+      "ParallelDeviation":          {"direction": "low",  "warn": 60.0, "error": 80.0}
+    }
+  },
+  "repair": {
+    "ladder": [
+      "smoothing",
+      "zero_size_controls",
+      "defeature",
+      "unmeshed_bodies",
+      "quad_shell",
+      "proximity",
+      "budget"
+    ],
+    "defeature_factor_ladder": [0.01, 0.03, 0.06],
+    "budget_scale_max": 1.8,
+    "budget_scale_min": 0.7,
+    "proximity_element_growth": 1.15,
+    "allow_element_order_change": false
+  },
+  "advice": {
+    "top_bodies": 10
+  }
+}
