@@ -94,6 +94,8 @@
                  max-width:300px"></select>
   <button class="btn" id="btnConnect" style="padding:4px 10px;font-size:12.5px"
           title="连接/切换到这个 Mechanical 实例">连接</button>
+  <span id="fgWarn" style="font-size:11.5px;color:#ffb84d;max-width:280px;
+        overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
   <span class="spacer"></span>
   <span class="muted" id="progText" style="font-size:12px"></span>
   <button class="btn danger" id="btnStop" hidden>■ 停止</button>
@@ -798,6 +800,19 @@ async function loadAgents(){
       return `<option value="${x.pid}"${pick}>` +
         `${x.connected ? '●' : '○'} ${x.project || ('PID ' + x.pid)} · ${x.pid} · ${st}${tgt}</option>`;
     }).join('');
+    // 前台窗口 vs 目标实例 提醒
+    const fgEl = $('fgWarn');
+    if(fgEl){
+      const fg = r.foreground;
+      const tgt = INSTANCES.find(x => x.target);
+      if(fg && tgt && fg !== tgt.pid){
+        const fgp = INSTANCES.find(x => x.pid === fg);
+        fgEl.textContent = `前台是 ${fgp ? fgp.project : fg}，目标是 ${tgt.project}`;
+        fgEl.title = '写模型前会自动把目标实例切到前台';
+      }else{
+        fgEl.textContent = '';
+      }
+    }
     // 连接按钮文字随选择变化
     const cur = INSTANCES.find(x => x.pid === PICKED_PID) || INSTANCES[0];
     const btn = $('btnConnect');

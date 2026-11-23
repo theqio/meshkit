@@ -926,9 +926,12 @@ def instances_list():
         except Exception:
             pass
     out.sort(key=lambda x: (not x["connected"], x["pid"]))
+    _fg = _foreground_mech_pid()
+    for x in out:
+        x["foreground"] = (x["pid"] == _fg)
     return {"ok": True, "instances": out,
             "connected_count": sum(1 for x in out if x["connected"]),
-            "target": tgt,
+            "target": tgt, "foreground": _fg,
             "connect_cmd": MECH_CONNECT_CMD}
 
 
@@ -1026,6 +1029,48 @@ def _scripting_pane_rect(pid):
     except Exception:
         pass
     return None
+
+
+MUTATING_OPS = {
+    "apply", "mesh", "group_geometry", "ungroup_folders", "rename_bodies",
+    "fix_body", "fix_failed", "quality_run", "set_local_defeature",
+    "save_project", "op_apply", "regroup",
+}
+
+
+def _foreground_mech_pid():
+    """当前前台窗口如果是 Mechanical，返回其 pid，否则 None"""
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        user32 = ctypes.windll.user32
+        h = user32.GetForegroundWindow()
+        if not h:
+            return None
+        pid = wt.DWORD()
+        user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
+        p = int(pid.value)
+        for a in _agents_raw():
+            if int(a.get("pid") or 0) == p:
+                return p
+        return None
+    except Exception:
+        return None
+
+
+def ensure_target_front():
+    """把目标实例切到前台；返回 (是否切换过, 切换前的前台 pid)"""
+    tgt = target_pid()
+    if not tgt:
+        return False, None
+    front = _foreground_mech_pid()
+    if front == tgt:
+        return False, front
+    try:
+        act = _activate_window(int(tgt))
+        return (act == "ok"), front
+    except Exception:
+        return False, front
 
 
 def _mech_auto_connect(pid):
@@ -1340,6 +1385,7 @@ def connect_instance(pid):
             if int(a.get("pid")) == pid and _pid_alive(pid):
                 try:
                     _TARGET["pid"] = int(pid)
+                    _target_save(int(pid))
                 except Exception:
                     pass
                 try:
@@ -1363,6 +1409,7 @@ def connect_instance(pid):
     if auto.get("ok"):
         try:
             _TARGET["pid"] = int(pid)
+            _target_save(int(pid))
         except Exception:
             pass
         try:
@@ -2354,22 +2401,53 @@ def _project_of_pid(pid):
     return name, path
 
 
+TARGET_FILE = os.path.join(IPC_DIR, "target.json")
+
+
+def _target_load():
+    try:
+        with open(TARGET_FILE, encoding="utf-8") as f:
+            return (json.load(f) or {}).get("pid")
+    except Exception:
+        return None
+
+
+def _target_save(pid):
+    try:
+        os.makedirs(IPC_DIR, exist_ok=True)
+        with open(TARGET_FILE, "w", encoding="utf-8") as f:
+            json.dump({"pid": pid}, f)
+    except Exception:
+        pass
+
+
 def target_pid():
-    """当前选中的实例；未选或已离线则取第一个在线实例"""
+    """当前选中的实例：内存 → target.json → 第一个在线实例
+       注意：target.json 记录的是"用户选择"，只要那个 Mechanical 进程还在就认它
+             （代理文件可能暂时过期，但进程在就说明模型还开着）
+    """
     alive = [a["pid"] for a in _agents_raw()]
-    # 服务重启后优先恢复上次选中的实例
-    if _TARGET.get("pid") not in alive:
-        try:
-            _saved = load_config().get("target_pid")
-            if _saved in alive:
-                _TARGET["pid"] = _saved
-        except Exception:
-            pass
-    if _TARGET.get("pid") in alive:
-        return _TARGET["pid"]
+    try:
+        procs = set(p["pid"] for p in _list_mech_procs())
+    except Exception:
+        procs = set()
+
+    cur = _TARGET.get("pid")
+    if cur in alive or cur in procs:
+        return cur
+
+    saved = _target_load()
+    if saved is not None and (saved in alive or saved in procs):
+        _TARGET["pid"] = saved
+        return saved
+
     if alive:
         _TARGET["pid"] = alive[0]
         return alive[0]
+    if procs:
+        pick = sorted(procs)[0]
+        _TARGET["pid"] = pick
+        return pick
     _TARGET["pid"] = None
     return None
 
@@ -3462,7 +3540,9 @@ tr:hover td{background:#141a22}
             if path == "/api/agent/select":
                 body = self._body()
                 try:
-                    _TARGET["pid"] = int(body.get("pid"))
+                    _pid_sel = int(body.get("pid"))
+                    _TARGET["pid"] = _pid_sel
+                    _target_save(_pid_sel)
                 except Exception:
                     return self._json({"ok": False, "error": "pid 无效"})
                 return self._json({"ok": True, "target": _TARGET["pid"],
@@ -3565,6 +3645,10 @@ tr:hover td{background:#141a22}
                 body = self._body()
                 if not bridge_alive():
                     return self._json({"ok": False, "error": "桥接代理未运行"})
+                try:
+                    ensure_target_front()
+                except Exception:
+                    pass
                 # 1) 纯几何识别（不看名字）
                 lb = call_bridge("list_bodies", timeout=300)
                 if not lb.get("ok"):
@@ -3626,6 +3710,11 @@ tr:hover td{background:#141a22}
                 body = self._body()
                 op = body.get("op") or ""
                 payload = body.get("payload") or {}
+                if op in MUTATING_OPS:
+                    try:
+                        ensure_target_front()
+                    except Exception:
+                        pass
                 if not bridge_alive():
                     return self._json({"ok": False, "bridge_offline": True,
                                        "error": "桥接代理未运行（bridge_agent.py）"})
