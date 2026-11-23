@@ -1567,10 +1567,25 @@ def _agents_raw():
     return out
 
 
+def _pid_alive(pid):
+    """该 pid 是否还活着"""
+    try:
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+               "$p=Get-Process -Id %d -ErrorAction SilentlyContinue;"
+               "if($p){'1'}else{'0'}" % int(pid)]
+        r = subprocess.run(cmd, capture_output=True, timeout=10,
+                           creationflags=0x08000000)
+        return (r.stdout or b"").strip() == b"1"
+    except Exception:
+        return True
+
+
 def agents_list():
     """在线实例 + 工程名（沿父进程找到 Workbench 的 wbpj）"""
     out = []
     for a in _agents_raw():
+        if not _pid_alive(a.get("pid")):
+            continue
         pid = a.get("pid")
         item = {"pid": pid, "version": a.get("version"),
                 "busy": bool(a.get("busy")), "age": a.get("age"),
@@ -2809,6 +2824,9 @@ tr:hover td{background:#141a22}
                 if body.get("rename"):
                     items = []
                     for g, names in groups.items():
+                        # 「其他」「未分组」里的体不改名（用户要求）
+                        if g in ("其他", "未分组"):
+                            continue
                         for n in names:
                             items.append({"body": n, "group": g})
                     rr = call_bridge("rename_bodies", {"mode": "prefix", "items": items},

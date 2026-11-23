@@ -50,6 +50,47 @@ def _sig(b):
     return "%dx%dx%d" % (d[0], d[1], d[2])
 
 
+# ---- 尺寸表最近邻匹配（带容差）----
+_SIG_CACHE = {}
+
+
+def _parse_sig(sig):
+    try:
+        parts = sig.split("x")
+        if len(parts) != 3:
+            return None
+        return (float(parts[0]), float(parts[1]), float(parts[2]))
+    except Exception:
+        return None
+
+
+def _match_size(dims, table, axis_tol=0.20, total_tol=0.15):
+    """dims 已排序；table: [(sig_dims, label)]
+       返回 (label, cost) 或 (None, None)
+    """
+    best = (None, None)
+    for sig_dims, lab in table:
+        if sig_dims is None:
+            continue
+        cost = 0.0
+        ok = True
+        for x, y in zip(dims, sig_dims):
+            if y <= 0:
+                ok = False
+                break
+            c = abs(x - y) / y
+            if c > axis_tol:
+                ok = False
+                break
+            if c > cost:
+                cost = c
+        if not ok or cost > total_tol:
+            continue
+        if best[1] is None or cost < best[1]:
+            best = (lab, cost)
+    return best
+
+
 def _box(b):
     cx, cy, cz = b.get("cx") or 0, b.get("cy") or 0, b.get("cz") or 0
     hx = (b.get("lx") or 0) / 2.0
@@ -97,10 +138,12 @@ def recognize(bodies):
         return seen
 
     rules = _load_json(RULES_PATH, {}).get("rules", {})
-    sig2lab = {}
+    sig_table = []
     for lab, info in rules.items():
         for s in (info.get("sizes") or []):
-            sig2lab.setdefault(s.get("sig"), lab)
+            sd = _parse_sig(s.get("sig") or "")
+            if sd:
+                sig_table.append((sd, lab))
 
     pred = {}
 
@@ -154,11 +197,30 @@ def recognize(bodies):
             if any(nb in wave for nb in adj[n]):
                 pred[n] = "侧固定件"
 
-    # ---- 尺寸表 ----
+    # ---- 储罐：三向都大 + 接近立方体 + 空心 ----
     for n in names:
         if n in pred:
             continue
-        lab = sig2lab.get(_sig(dmap[n]))
+        b = dmap[n]
+        d = _dims(b)
+        if d[0] < 1500:
+            continue
+        ratio = d[2] / max(1.0, d[0])
+        if ratio > 2.6:
+            continue
+        bbox = max(1.0, d[0] * d[1] * d[2])
+        fill = (b.get("vol") or 0) / bbox
+        if 0.05 <= fill <= 0.55:
+            pred[n] = "储罐"
+
+    # ---- 尺寸表（最近邻 + 容差）----
+    for n in names:
+        if n in pred:
+            continue
+        d = _dims(dmap[n])
+        if d[0] <= 0:
+            continue
+        lab, cost = _match_size(d, sig_table)
         if lab:
             pred[n] = lab
 

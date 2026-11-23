@@ -1,5 +1,5 @@
 {
- "source": "canonical_manual_grouping",
+ "source": "canonical + manual(12mm)",
  "note": "由用户手工分组的正确结果建立，勿被自动重建覆盖",
  "rules": {
   "垫板": {
@@ -41,6 +41,21 @@
      "sig": "46x204x2380",
      "count": 0,
      "samples": []
+    },
+    {
+     "sig": "46x206x2680",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "46x204x2680",
+     "count": 3,
+     "samples": []
+    },
+    {
+     "sig": "46x204x2050",
+     "count": 1,
+     "samples": []
     }
    ],
    "total": 0,
@@ -74,6 +89,11 @@
      "sig": "3x2300x2381",
      "count": 0,
      "samples": []
+    },
+    {
+     "sig": "3x2431x2790",
+     "count": 2,
+     "samples": []
     }
    ],
    "total": 0,
@@ -84,6 +104,11 @@
     {
      "sig": "50x200x209",
      "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "50x200x207",
+     "count": 2,
      "samples": []
     }
    ],
@@ -117,6 +142,11 @@
      "sig": "25x235x235",
      "count": 0,
      "samples": []
+    },
+    {
+     "sig": "25x222x222",
+     "count": 2,
+     "samples": []
     }
    ],
    "total": 0,
@@ -149,6 +179,16 @@
      "sig": "100x150x2194",
      "count": 0,
      "samples": []
+    },
+    {
+     "sig": "100x150x2644",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "100x200x2590",
+     "count": 2,
+     "samples": []
     }
    ],
    "total": 0,
@@ -164,6 +204,16 @@
     {
      "sig": "100x200x11836",
      "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "100x150x13392",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "100x200x13360",
+     "count": 2,
      "samples": []
     }
    ],
@@ -197,6 +247,16 @@
      "sig": "48x2025x2858",
      "count": 0,
      "samples": []
+    },
+    {
+     "sig": "46x2858x13272",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "48x2520x2858",
+     "count": 2,
+     "samples": []
     }
    ],
    "total": 0,
@@ -217,6 +277,11 @@
     {
      "sig": "4x2300x2990",
      "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "148x2971x13504",
+     "count": 1,
      "samples": []
     }
    ],
@@ -254,6 +319,26 @@
     {
      "sig": "44x810x950",
      "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "44x810x1445",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "44x690x2794",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "44x810x1446",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "44x690x2802",
+     "count": 2,
      "samples": []
     }
    ],
@@ -316,6 +401,21 @@
     {
      "sig": "73x120x1226",
      "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "94x165x2790",
+     "count": 5,
+     "samples": []
+    },
+    {
+     "sig": "50x143x2799",
+     "count": 3,
+     "samples": []
+    },
+    {
+     "sig": "50x120x1659",
+     "count": 1,
      "samples": []
     }
    ],
@@ -384,6 +484,116 @@
    ],
    "total": 0,
    "canonical": true
+  },
+  "防爆板": {
+   "sizes": [
+    {
+     "sig": "50x100x660",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "60x80x200",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "40x60x200",
+     "count": 4,
+     "samples": []
+    },
+    {
+     "sig": "40x60x560",
+     "count": 4,
+     "samples": []
+    },
+    {
+     "sig": "50x100x330",
+     "count": 4,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "侧支撑": {
+   "sizes": [
+    {
+     "sig": "209x209x3160",
+     "count": 4,
+     "samples": []
+    },
+    {
+     "sig": "209x209x2509",
+     "count": 4,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "边侧电缆口": {
+   "sizes": [
+    {
+     "sig": "50x100x300",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "50x100x340",
+     "count": 2,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
+  },
+  "隔断支撑梁": {
+   "sizes": [
+    {
+     "sig": "50x50x1495",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "60x80x2790",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "60x80x920",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "60x80x149",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "60x80x1202",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "60x80x2229",
+     "count": 7,
+     "samples": []
+    },
+    {
+     "sig": "50x100x2794",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "50x100x2799",
+     "count": 2,
+     "samples": []
+    }
+   ],
+   "total": 0,
+   "canonical": true
   }
- }
+ },
+ "updated": "2026-11-23 10:17:18"
 }

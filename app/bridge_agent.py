@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-01.6"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-01.7"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -4413,6 +4413,9 @@ def op_list_bodies(payload):
             gid = int(_safe(b, "GetGeoBody")().Id)
         except Exception:
             pass
+        # 跳过无几何的空壳节点（例如 Part 占位节点：无 id、尺寸全 0）
+        if gid is None and lx <= 0 and ly <= 0 and lz <= 0:
+            continue
         out.append({"name": name, "id": gid, "suppressed": _sup,
                     "lx": round(lx, 1), "ly": round(ly, 1), "lz": round(lz, 1),
                     "cx": round(cx, 1), "cy": round(cy, 1), "cz": round(cz, 1),
