@@ -231,6 +231,16 @@
      "sig": "209x209x3139",
      "count": 0,
      "samples": []
+    },
+    {
+     "sig": "209x209x3160",
+     "count": 4,
+     "samples": []
+    },
+    {
+     "sig": "209x209x2509",
+     "count": 4,
+     "samples": []
     }
    ],
    "total": 0,
@@ -365,6 +375,46 @@
     {
      "sig": "120x2300x2388",
      "count": 0,
+     "samples": []
+    },
+    {
+     "sig": "50x50x1495",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "60x80x2790",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "60x80x920",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "60x80x149",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "60x80x1202",
+     "count": 1,
+     "samples": []
+    },
+    {
+     "sig": "60x80x2229",
+     "count": 7,
+     "samples": []
+    },
+    {
+     "sig": "50x100x2794",
+     "count": 2,
+     "samples": []
+    },
+    {
+     "sig": "50x100x2799",
+     "count": 2,
      "samples": []
     }
    ],
@@ -516,22 +566,6 @@
    "total": 0,
    "canonical": true
   },
-  "侧支撑": {
-   "sizes": [
-    {
-     "sig": "209x209x3160",
-     "count": 4,
-     "samples": []
-    },
-    {
-     "sig": "209x209x2509",
-     "count": 4,
-     "samples": []
-    }
-   ],
-   "total": 0,
-   "canonical": true
-  },
   "边侧电缆口": {
    "sizes": [
     {
@@ -541,52 +575,6 @@
     },
     {
      "sig": "50x100x340",
-     "count": 2,
-     "samples": []
-    }
-   ],
-   "total": 0,
-   "canonical": true
-  },
-  "隔断支撑梁": {
-   "sizes": [
-    {
-     "sig": "50x50x1495",
-     "count": 2,
-     "samples": []
-    },
-    {
-     "sig": "60x80x2790",
-     "count": 1,
-     "samples": []
-    },
-    {
-     "sig": "60x80x920",
-     "count": 1,
-     "samples": []
-    },
-    {
-     "sig": "60x80x149",
-     "count": 2,
-     "samples": []
-    },
-    {
-     "sig": "60x80x1202",
-     "count": 1,
-     "samples": []
-    },
-    {
-     "sig": "60x80x2229",
-     "count": 7,
-     "samples": []
-    },
-    {
-     "sig": "50x100x2794",
-     "count": 2,
-     "samples": []
-    },
-    {
-     "sig": "50x100x2799",
      "count": 2,
      "samples": []
     }
