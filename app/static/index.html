@@ -822,9 +822,11 @@ async function loadAgents(){
       const fg = r.foreground;
       const fgp = fg ? INSTANCES.find(x => x.pid === fg) : null;
       if(tgt){
+        const sc = tgt.screen || {};
+        const scrTxt = sc.label ? (' · ' + sc.label + ' ' + sc.w + '×' + sc.h) : '';
         tb.innerHTML =
           `<span style="color:#7ee2a8">当前操作目标：<b>${tgt.project || ('PID ' + tgt.pid)}</b>` +
-          `<span class="muted">（PID ${tgt.pid}${tgt.connected ? '' : ' · 未连接'}）</span></span>` +
+          `<span class="muted">（PID ${tgt.pid}${tgt.connected ? '' : ' · 未连接'}${scrTxt}）</span></span>` +
           `<span style="flex:1"></span>` +
           (fg && fg !== tgt.pid
             ? `<span style="color:#ffb84d">⚠ 前台窗口是 ${fgp ? fgp.project : fg}，写操作前会自动切到目标</span>`
