@@ -1486,6 +1486,32 @@ def kb_delete(name):
     return {"ok": True, "packs": len(d["packs"])}
 
 
+def kb_apply_pack(name):
+    """把某个知识包里的尺寸/方法写进当前配置（立即生效）"""
+    d = _kb_load()
+    pack = None
+    for p in d.get("packs") or []:
+        if p.get("name") == name:
+            pack = p
+            break
+    if not pack:
+        return {"ok": False, "error": "找不到该知识包"}
+    cfg = load_config()
+    sizes = cfg.setdefault("sizes", {})
+    methods = cfg.setdefault("methods", {})
+    n_s = n_m = 0
+    for k, v in (pack.get("sizes") or {}).items():
+        if v:
+            sizes[k] = v
+            n_s += 1
+    for k, v in (pack.get("methods") or {}).items():
+        if v:
+            methods[k] = v
+            n_m += 1
+    save_config(cfg)
+    return {"ok": True, "sizes": n_s, "methods": n_m}
+
+
 def kb_extra_rules():
     """勾选的知识包 → {类别: [尺寸签名]}，用于增强识别"""
     d = _kb_load()
@@ -3698,6 +3724,10 @@ tr:hover td{background:#141a22}
                 if not bridge_alive():
                     return self._json({"ok": False, "error": "桥接代理未运行"})
                 return self._json(kb_capture(body.get("name") or ""))
+
+            if path == "/api/kb/apply":
+                body = self._body()
+                return self._json(kb_apply_pack(body.get("name") or ""))
 
             if path == "/api/kb/toggle":
                 body = self._body()

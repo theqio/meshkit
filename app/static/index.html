@@ -260,7 +260,8 @@
     </div>
     <div id="kbList" style="max-height:220px;overflow:auto;font-size:12px"></div>
 
-    <h2 style="margin-top:18px">常用配置</h2>
+    <div style="display:none">
+<h2 style="margin-top:18px">常用配置</h2>
     <div class="muted" id="favHint" style="margin-bottom:6px">手动保存当前尺寸+方法为一套配置</div>
     <div style="display:flex;gap:6px;margin-bottom:8px">
       <input type="text" id="favName" placeholder="配置名称（如：标准粗网格）"
@@ -270,6 +271,7 @@
     <div id="favList"></div>
 
     <div style="display:none">
+</div>
 <h2 style="margin-top:18px">模型记忆</h2>
     <div class="muted" style="margin-bottom:6px">存下当前模型的分类方案；换相近模型时按几何特征自动识别</div>
     <div style="display:flex;gap:6px;margin-bottom:8px">
@@ -1392,6 +1394,9 @@ async function loadKb(){
           <span class="muted" style="font-size:11px">
             ${p.categories} 类 / ${p.sigs} 个尺寸组合</span>
         </span>
+        <button class="btn" data-kbapply="${p.name}"
+                style="padding:1px 7px;font-size:11px"
+                title="把这个知识包里的尺寸/方法写入当前配置（立即生效）">套用</button>
         <button class="btn" data-kbdel="${p.name}"
                 style="padding:1px 7px;font-size:11px">删</button>
       </div>`).join('');
@@ -1403,6 +1408,23 @@ async function loadKb(){
           body: JSON.stringify({name: name, on: on})});
         log(`知识包「${name}」${on?'已启用':'已停用'}`);
         await loadCategories();
+      };
+    });
+    box.querySelectorAll('button[data-kbapply]').forEach(btn => {
+      btn.onclick = async () => {
+        const name = btn.getAttribute('data-kbapply');
+        setBusy(true, '套用知识包');
+        const r = await api('/api/kb/apply', {method:'POST',
+          body: JSON.stringify({name: name})});
+        setBusy(false);
+        if(r.ok){
+          log(`知识包「${name}」已套用：${r.sizes} 个尺寸 / ${r.methods} 个方法`);
+          toast('已套用尺寸与方法');
+          await loadCategories();
+        }else{
+          log('套用失败：' + (r.error||''));
+          toast('套用失败');
+        }
       };
     });
     box.querySelectorAll('button[data-kbdel]').forEach(btn => {
