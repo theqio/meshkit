@@ -932,6 +932,72 @@ def instances_list():
             "connect_cmd": MECH_CONNECT_CMD}
 
 
+def _scripting_pane_open(pid):
+    """UIA 检查该窗口是否已有 Scripting 面板（ACTConsole）"""
+    try:
+        ps = (
+            "Add-Type -AssemblyName UIAutomationClient;"
+            "Add-Type -AssemblyName UIAutomationTypes;"
+            "$AE=[System.Windows.Automation.AutomationElement];"
+            "$root=$AE::RootElement;"
+            "$all=$root.FindAll([System.Windows.Automation.TreeScope]::Children,"
+            "[System.Windows.Automation.Condition]::TrueCondition);"
+            "foreach($w in $all){ if($w.Current.ProcessId -eq %d){"
+            " $kids=$w.FindAll([System.Windows.Automation.TreeScope]::Descendants,"
+            "[System.Windows.Automation.Condition]::TrueCondition);"
+            " $hit=0;"
+            " foreach($k in $kids){ if($k.Current.Name -match 'ACTConsole|Mechanical Scripting'){$hit++} };"
+            " if($hit -gt 0){'yes'}else{'no'}; break } }"
+        ) % int(pid)
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                           capture_output=True, timeout=25, creationflags=0x08000000)
+        out = (r.stdout or b"").decode("mbcs", "ignore").strip().lower()
+        return "yes" in out
+    except Exception:
+        return False
+
+
+def _open_scripting_pane(pid):
+    """点 Automation 标签下的 Scripting 按钮（窗口相对坐标 155,76）"""
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        user32 = ctypes.windll.user32
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("L", ctypes.c_long), ("T", ctypes.c_long),
+                        ("R", ctypes.c_long), ("B", ctypes.c_long)]
+
+        found = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
+        def cb(h, l):
+            p = wt.DWORD()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(p))
+            if p.value == int(pid) and user32.IsWindowVisible(h):
+                r = RECT()
+                user32.GetWindowRect(h, ctypes.byref(r))
+                if r.R - r.L > 800 and r.B - r.T > 600:
+                    found.append((h, r.L, r.T))
+            return True
+
+        user32.EnumWindows(cb, 0)
+        if not found:
+            return "nowin"
+        h, L, T = found[0]
+        user32.SetForegroundWindow(h)
+        time.sleep(0.3)
+        user32.SetCursorPos(L + 155, T + 76)
+        time.sleep(0.25)
+        user32.mouse_event(0x0002, 0, 0, 0, 0)
+        time.sleep(0.1)
+        user32.mouse_event(0x0004, 0, 0, 0, 0)
+        time.sleep(1.2)
+        return "ok"
+    except Exception as e:
+        return "err:%s" % str(e)[:40]
+
+
 def _activate_window(pid):
     """把指定 pid 的 Mechanical 窗口切到前台（AttachThreadInput 方式）"""
     try:
@@ -1066,8 +1132,25 @@ def connect_instance(pid):
         except Exception:
             pass
 
-    # 未连接：激活 + 复制命令
+    # 未连接：激活 + 确保 Scripting 面板打开 + 复制命令
     act = _activate_window(pid)
+    pane = "unknown"
+    try:
+        if act == "ok":
+            if _scripting_pane_open(pid):
+                pane = "already"
+            else:
+                _open_scripting_pane(pid)
+                time.sleep(0.8)
+                if _scripting_pane_open(pid):
+                    pane = "opened"
+                else:
+                    # 点一次没打开（可能原来就是开着的，被切换关了）→ 再点一次
+                    _open_scripting_pane(pid)
+                    time.sleep(0.8)
+                    pane = "opened" if _scripting_pane_open(pid) else "failed"
+    except Exception:
+        pane = "err"
     if act not in ("ok",):
         try:
             act2 = _activate_window_ps(pid)
@@ -1077,7 +1160,7 @@ def connect_instance(pid):
             pass
     clip = _set_clipboard(MECH_CONNECT_CMD)
     return {"ok": True, "connected": False, "pid": pid,
-            "activated": act, "clipboard": clip,
+            "activated": act, "pane": pane, "clipboard": clip,
             "command": MECH_CONNECT_CMD,
             "message": "已激活该 Mechanical 窗口并把命令放进剪贴板，"
                        "在 Mechanical 的 Scripting 输入框里 Ctrl+V 再回车"}
