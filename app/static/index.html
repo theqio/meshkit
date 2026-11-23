@@ -407,6 +407,14 @@ async function api(path, opts){
   }
   return json;
 }
+function INSTANCES_TARGET_PID(){
+  const t = INSTANCES.find(x => x.target);
+  return t ? t.pid : null;
+}
+function INSTANCES_TARGET_LABEL(){
+  const t = INSTANCES.find(x => x.target);
+  return t ? (t.project || ('PID ' + t.pid)) : '未选择';
+}
 const fmt = n => (n||0).toLocaleString('en-US');
 
 /* ---------------- 状态 ---------------- */
@@ -1890,6 +1898,10 @@ async function clearAll(){
 }
 
 async function loadCategories(){
+  /*
+   * 拿到类别后核对：数据来自哪个实例？与当前目标不一致就告警，
+   * 避免"操作 2000c4 却看到测试版的列表"。
+   */
   try{
     const r = await api('/api/categories');
     if(!r.ok){
@@ -1899,6 +1911,16 @@ async function loadCategories(){
                                           method:(CFG.methods||{})[k]||'Automatic'})));
       return;
     }
+    // 核对：这份列表来自哪个实例
+    try{
+      if(r.pid && r.pid !== INSTANCES_TARGET_PID()){
+        log('⚠ 类别列表来自 ' + (r.project || r.pid) +
+            '，与当前目标 ' + INSTANCES_TARGET_LABEL() + ' 不一致，正在重新对齐');
+        loadAgents();
+      }else if(r.project){
+        log('类别列表来源：' + r.project + '（' + (r.categories||[]).length + ' 类）');
+      }
+    }catch(e){}
     LAST_CATS = r.categories || [];
     LAST_SUG = r.suggestion || null;
     renderCategories(LAST_CATS, r.methods_available);

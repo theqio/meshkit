@@ -2880,12 +2880,13 @@ def target_pid():
              （代理文件可能暂时过期，但进程在就说明模型还开着）
     """
     alive = [a["pid"] for a in _agents_raw()]
+    # 进程集合必须一直算（带缓存，毫秒级）：
+    # 长任务期间代理文件不刷新，若只看代理文件会把目标误判为离线
     procs = set()
-    if not alive:
-        try:
-            procs = set(p["pid"] for p in _list_mech_procs())
-        except Exception:
-            procs = set()
+    try:
+        procs = set(p["pid"] for p in _list_mech_procs())
+    except Exception:
+        procs = set()
 
     cur = _TARGET.get("pid")
     if cur in alive or cur in procs:
@@ -3090,6 +3091,13 @@ class Handler(BaseHTTPRequestHandler):
                 # ⓿ 优先用几何识别结果（与扫描分组一致）
                 _rec = categories_from_recognition()
                 if _rec.get("ok"):
+                    try:
+                        _tp0 = target_pid()
+                        _pn0, _pp0 = _project_of_pid(_tp0)
+                        _rec["pid"] = _tp0
+                        _rec["project"] = _pn0
+                    except Exception:
+                        pass
                     return self._json(_rec)
 
                 # ⓿b 退化：按体名前缀分组
