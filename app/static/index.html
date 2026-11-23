@@ -86,7 +86,6 @@
 <body>
 <header>
   <h1>MeshKit AI</h1>
-  <span class="sub" id="projName" title="" style="max-width:460px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">模型：读取中…</span>
   <span class="dot" id="dot"></span><span class="sub" id="bridgeText">检测中…</span>
   <select id="agentSel" title="选择要控制的 Mechanical 实例"
           style="background:var(--panel2);border:1px solid var(--line);
@@ -911,20 +910,7 @@ function copyConnectCmd(){
 
 /* ---------------- 当前模型文件名 ---------------- */
 async function loadProject(){
-  const el = $('projName');
-  if(!el) return;
-  try{
-    const r = await api('/api/project');
-    if(r.ok && r.name){
-      el.textContent = '模型：' + r.name;
-      el.title = r.path || r.name;
-    }else{
-      el.textContent = '模型：未读取到工程文件';
-      el.title = r.error || '';
-    }
-  }catch(e){
-    el.textContent = '模型：读取失败';
-  }
+  // 顶部不再显示工程名（实例下拉里已有），这里保留空实现避免其它调用报错
 }
 
 async function loadCounts(){
