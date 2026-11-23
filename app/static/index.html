@@ -812,8 +812,11 @@ async function loadAgents(){
       const st = x.connected ? '已连接' : '未连接';
       const tgt = x.target ? ' ★' : '';
       const pick = (x.pid === PICKED_PID) ? ' selected' : '';
+      const cnt = (x.bodies != null)
+        ? ` · ${x.bodies}体/${x.groups != null ? x.groups + '组' : '?'}`
+        : '';
       return `<option value="${x.pid}"${pick}>` +
-        `${x.connected ? '●' : '○'} ${x.project || ('PID ' + x.pid)} · ${x.pid} · ${st}${tgt}</option>`;
+        `${x.connected ? '●' : '○'} ${x.project || ('PID ' + x.pid)} · ${x.pid} · ${st}${cnt}${tgt}</option>`;
     }).join('');
     // 目标状态条
     const tb = $('targetBar');

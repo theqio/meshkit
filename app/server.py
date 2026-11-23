@@ -869,8 +869,14 @@ def _action_for(titles):
 MECH_CONNECT_CMD = 'execfile("D:/ai/meshkit/app/bridge_agent.py")'
 
 
-def _list_mech_procs():
-    """所有正在运行的 AnsysWBU 进程 + 其 Workbench 父进程里的工程路径"""
+_PROCS_CACHE = {"ts": 0, "data": []}
+
+
+def _list_mech_procs(ttl=60.0):
+    """所有正在运行的 AnsysWBU 进程 + 其 Workbench 父进程里的工程路径（带缓存）"""
+    now = time.time()
+    if _PROCS_CACHE["data"] and now - _PROCS_CACHE["ts"] < ttl:
+        return list(_PROCS_CACHE["data"])
     try:
         ps = ("Get-CimInstance Win32_Process -Filter \"Name='AnsysWBU.exe'\" | "
               "ForEach-Object { $p=$_; $q=Get-CimInstance Win32_Process "
@@ -897,7 +903,23 @@ def _list_mech_procs():
             if proj:
                 proj = os.path.basename(proj)[:-5]
         out.append({"pid": int(pid_s), "project": proj})
+    _PROCS_CACHE["ts"] = time.time()
+    _PROCS_CACHE["data"] = list(out)
     return out
+
+
+def _prefetch_procs():
+    try:
+        _list_mech_procs(ttl=0)
+    except Exception:
+        pass
+
+
+try:
+    import threading as _th
+    _th.Thread(target=_prefetch_procs, daemon=True).start()
+except Exception:
+    pass
 
 
 def instances_list():
@@ -946,6 +968,11 @@ def instances_list():
             x["screen"] = window_screen(x["pid"]).get("monitor")
         except Exception:
             x["screen"] = None
+        if x.get("connected"):
+            try:
+                x.update(instance_summary(x["pid"]))
+            except Exception:
+                pass
     return {"ok": True, "instances": out,
             "connected_count": sum(1 for x in out if x["connected"]),
             "target": tgt, "foreground": _fg,
@@ -1053,6 +1080,82 @@ MUTATING_OPS = {
     "fix_body", "fix_failed", "quality_run", "set_local_defeature",
     "save_project", "op_apply", "regroup",
 }
+
+
+_INST_CACHE = {}
+
+
+def call_bridge_pid(pid, op, payload=None, timeout=30):
+    """直接向指定 pid 的代理下命令（不改当前目标）"""
+    pid = int(pid)
+    os.makedirs(IPC_DIR, exist_ok=True)
+    seq = uuid.uuid4().hex[:12]
+    cmd_path = os.path.join(IPC_DIR, "cmd_%d.json" % pid)
+    res_path = os.path.join(IPC_DIR, "result_%d.json" % pid)
+    try:
+        if os.path.isfile(res_path):
+            os.remove(res_path)
+    except Exception:
+        pass
+    try:
+        with open(cmd_path, "w", encoding="utf-8") as f:
+            json.dump({"seq": seq, "op": op, "payload": payload or {}}, f)
+    except Exception as e:
+        return {"ok": False, "error": "写命令失败: %s" % str(e)[:80]}
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(0.25)
+        try:
+            with open(res_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            continue
+        if data.get("seq") == seq:
+            return data
+    return {"ok": False, "error": "超时（%ds 无回应）" % timeout}
+
+
+_INST_BUSY = {}
+
+
+def _refresh_summary(pid):
+    """后台线程：真正去问 Mechanical"""
+    pid = int(pid)
+    try:
+        info = {"bodies": None, "groups": None, "ungrouped": None}
+        lb = call_bridge_pid(pid, "list_bodies", {}, timeout=20)
+        if lb.get("ok"):
+            info["bodies"] = len(lb.get("bodies") or [])
+        gg = call_bridge_pid(pid, "geom_groups", {}, timeout=20)
+        if gg.get("ok"):
+            info["groups"] = len(gg.get("groups") or [])
+            info["ungrouped"] = len(gg.get("ungrouped") or [])
+        if info["bodies"] is not None or info["groups"] is not None:
+            _INST_CACHE[pid] = (time.time(), info)
+    except Exception:
+        pass
+    finally:
+        _INST_BUSY[pid] = False
+
+
+def instance_summary(pid, ttl=30):
+    """立即返回缓存；缓存过期则后台刷新（不阻塞页面）"""
+    pid = int(pid)
+    now = time.time()
+    c = _INST_CACHE.get(pid)
+    if c and now - c[0] < ttl:
+        return c[1]
+    if not _INST_BUSY.get(pid):
+        _INST_BUSY[pid] = True
+        try:
+            import threading
+            threading.Thread(target=_refresh_summary, args=(pid,),
+                             daemon=True).start()
+        except Exception:
+            _INST_BUSY[pid] = False
+    if c:
+        return c[1]
+    return {"bodies": None, "groups": None, "ungrouped": None}
 
 
 def _monitors():
@@ -2565,17 +2668,22 @@ def _agents_raw():
 
 
 def _pid_alive(pid):
-    """该 pid 是否还活着"""
+    """该 pid 是否还活着（ctypes，毫秒级）"""
     try:
-        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command",
-               "$p=Get-Process -Id %d -ErrorAction SilentlyContinue;"
-               "if($p){'1'}else{'0'}" % int(pid)]
-        r = subprocess.run(cmd, capture_output=True, timeout=10,
-                           creationflags=0x08000000)
-        return (r.stdout or b"").strip() == b"1"
+        import ctypes
+        import ctypes.wintypes as wt
+        k32 = ctypes.windll.kernel32
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        h = k32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, int(pid))
+        if not h:
+            return False
+        code = wt.DWORD()
+        ok = k32.GetExitCodeProcess(h, ctypes.byref(code))
+        k32.CloseHandle(h)
+        return bool(ok) and code.value == STILL_ACTIVE
     except Exception:
         return True
-
 
 def agents_list():
     """在线实例 + 工程名（沿父进程找到 Workbench 的 wbpj）"""
@@ -2655,10 +2763,12 @@ def target_pid():
              （代理文件可能暂时过期，但进程在就说明模型还开着）
     """
     alive = [a["pid"] for a in _agents_raw()]
-    try:
-        procs = set(p["pid"] for p in _list_mech_procs())
-    except Exception:
-        procs = set()
+    procs = set()
+    if not alive:
+        try:
+            procs = set(p["pid"] for p in _list_mech_procs())
+        except Exception:
+            procs = set()
 
     cur = _TARGET.get("pid")
     if cur in alive or cur in procs:
