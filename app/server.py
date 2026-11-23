@@ -961,6 +961,13 @@ def _activate_window(pid):
         if not found:
             return "nowin"
         h = found[0]
+        # 1) 若最小化先恢复
+        if user32.IsIconic(h):
+            user32.ShowWindow(h, 9)
+            time.sleep(0.25)
+        # 2) 强制置顶（HWND_TOPMOST=-1, SWP 标志）
+        user32.SetWindowPos(h, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+        # 3) AttachThreadInput 方式抢焦点
         user32.keybd_event(0x12, 0, 0, 0)
         user32.keybd_event(0x12, 0, 2, 0)
         time.sleep(0.12)
@@ -970,7 +977,28 @@ def _activate_window(pid):
         user32.BringWindowToTop(h)
         user32.SetForegroundWindow(h)
         user32.AttachThreadInput(cur, tgt, False)
-        time.sleep(0.35)
+        # 4) 任务栏闪烁提醒
+        try:
+            class FLASHWINFO(ctypes.Structure):
+                _fields_ = [("cbSize", wt.UINT), ("hwnd", wt.HWND),
+                            ("dwFlags", wt.DWORD), ("uCount", wt.UINT),
+                            ("dwTimeout", wt.DWORD)]
+            fi = FLASHWINFO(ctypes.sizeof(FLASHWINFO), h, 3 | 12, 6, 0)
+            user32.FlashWindowEx(ctypes.byref(fi))
+        except Exception:
+            pass
+        # 4.5) 兜底：SwitchToThisWindow（对某些前台锁有效）
+        try:
+            user32.SwitchToThisWindow(h, True)
+            time.sleep(0.2)
+        except Exception:
+            pass
+        time.sleep(0.4)
+        # 5) 取消置顶，避免永远压着别的窗口
+        try:
+            user32.SetWindowPos(h, -2, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0040)
+        except Exception:
+            pass
         return "ok" if user32.GetForegroundWindow() == h else "no"
     except Exception as e:
         return "err:%s" % str(e)[:40]
@@ -2914,7 +2942,19 @@ tr:hover td{background:#141a22}
                     pid = 0
                 if not pid:
                     return self._json({"ok": False, "error": "缺少 pid"})
-                return self._json(connect_instance(pid))
+                try:
+                    _res = connect_instance(pid)
+                except Exception as _e:
+                    _res = {"ok": False, "error": "exception: %s" % str(_e)[:200]}
+                try:
+                    with open(os.path.join(APP_DIR, "ipc", "connect.log"), "a",
+                              encoding="utf-8") as _f:
+                        _f.write("%s pid=%s -> %s\n" % (
+                            time.strftime("%H:%M:%S"), pid,
+                            {k: _res.get(k) for k in ("ok", "connected", "activated", "clipboard", "error")}))
+                except Exception:
+                    pass
+                return self._json(_res)
 
             if path == "/api/agent/select":
                 body = self._body()

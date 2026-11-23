@@ -797,6 +797,8 @@ async function connectSelected(){
   const pid = PICKED_PID || parseInt(sel.value, 10);
   const inst = INSTANCES.find(x => x.pid === pid) || {};
   PICKED_PID = pid;
+  log('点击连接：PID ' + pid + '（' + (inst.project || '未知工程') + '，' +
+      (inst.connected ? '已连接' : '未连接') + '）');
   setBusy(true, inst.connected ? '切换实例' : '连接实例');
   try{
     const r = await api('/api/connect', {method:'POST',
@@ -833,7 +835,7 @@ async function connectSelected(){
       }, 2000);
       // 之后自动轮询，连上会自己变状态
     }
-  }catch(e){ log('连接异常：' + e); }
+  }catch(e){ log('连接异常：' + e); toast('连接异常'); }
   setBusy(false);
 }
 
@@ -844,7 +846,8 @@ function showConnectGuide(pid, r){
   box.innerHTML = `
     <div style="font-size:12.5px;line-height:1.7">
       <b style="color:#ffd48a">PID ${pid} 还没连接</b>，按下面 3 步（命令已在剪贴板）：
-      <div style="margin-top:6px">1. 切到那个 Mechanical 窗口（已帮你激活）</div>
+      <div style="margin-top:6px">1. 切到那个 Mechanical 窗口（已帮你激活；若没跳到前面，
+           点任务栏里闪烁的「${(r.pid||'')} - Mechanical」，或按 Alt+Tab）</div>
       <div>2. 点顶部 <b>Automation（自动化）</b> → <b>Scripting（脚本）</b></div>
       <div>3. 点脚本框，按 <b>Ctrl+V</b>，再按 <b>Enter</b>（或点绿色 ▶）</div>
       <div class="muted" style="margin-top:6px">命令：<code>${(r.command||'').replace(/</g,'&lt;')}</code></div>
