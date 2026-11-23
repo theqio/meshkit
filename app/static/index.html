@@ -89,9 +89,11 @@
   <span class="sub" id="projName" title="" style="max-width:460px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">模型：读取中…</span>
   <span class="dot" id="dot"></span><span class="sub" id="bridgeText">检测中…</span>
   <select id="agentSel" title="选择要控制的 Mechanical 实例"
-          style="display:none;background:var(--panel2);border:1px solid var(--line);
+          style="background:var(--panel2);border:1px solid var(--line);
                  color:var(--fg);border-radius:6px;padding:4px 8px;font-size:12.5px;
-                 max-width:340px"></select>
+                 max-width:300px"></select>
+  <button class="btn" id="btnConnect" style="padding:4px 10px;font-size:12.5px"
+          title="连接/切换到这个 Mechanical 实例">连接</button>
   <span class="spacer"></span>
   <span class="muted" id="progText" style="font-size:12px"></span>
   <button class="btn danger" id="btnStop" hidden>■ 停止</button>
@@ -300,6 +302,9 @@
   </div>
 </div>
 
+<div id="connectGuide" style="display:none;position:fixed;right:18px;bottom:60px;
+     z-index:98;max-width:520px;background:#1b2431;border:1px solid #3a4a5f;
+     border-radius:8px;padding:12px 14px;box-shadow:0 12px 36px rgba(0,0,0,.55)"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -753,42 +758,87 @@ async function setParam(cat, apiName, value){
 /* ---------------- 多 Mechanical 实例切换 ---------------- */
 let AGENTS = [], AGENT_TARGET = null;
 
+let INSTANCES = [];
+
 async function loadAgents(){
   const sel = $('agentSel');
   if(!sel) return;
   try{
-    const r = await api('/api/agents');
-    AGENTS = r.agents || [];
-    AGENT_TARGET = r.target;
-    if(AGENTS.length <= 1){
-      sel.style.display = 'none';
+    const r = await api('/api/instances');
+    if(!r.ok) return;
+    INSTANCES = r.instances || [];
+    if(!INSTANCES.length){
+      sel.innerHTML = '<option>没有检测到 Mechanical</option>';
       return;
     }
-    sel.style.display = '';
-    sel.innerHTML = AGENTS.map(a => {
-      const label = (a.project ? a.project : ('实例 PID ' + a.pid))
-        + ' · PID ' + a.pid + (a.busy ? ' · 忙' : '');
-      return `<option value="${a.pid}"${a.pid === AGENT_TARGET ? ' selected' : ''}>${label}</option>`;
+    sel.innerHTML = INSTANCES.map(x => {
+      const st = x.connected ? '已连接' : '未连接';
+      const tgt = x.target ? ' ★' : '';
+      return `<option value="${x.pid}"${x.target ? ' selected' : ''}>` +
+        `${x.connected ? '●' : '○'} ${x.project || ('PID ' + x.pid)} · ${x.pid} · ${st}${tgt}</option>`;
     }).join('');
+    // 连接按钮文字随选择变化
+    const cur = INSTANCES.find(x => String(x.pid) === sel.value) || INSTANCES[0];
+    const btn = $('btnConnect');
+    if(btn) btn.textContent = cur && cur.connected ? '切换' : '连接';
   }catch(e){ /* 忽略 */ }
 }
 
-async function selectAgent(pid){
+async function connectSelected(){
+  const sel = $('agentSel');
+  if(!sel || !sel.value) return;
+  const pid = parseInt(sel.value, 10);
+  const inst = INSTANCES.find(x => x.pid === pid) || {};
+  setBusy(true, inst.connected ? '切换实例' : '连接实例');
   try{
-    const r = await api('/api/agent/select', {method:'POST',
+    const r = await api('/api/connect', {method:'POST',
       body: JSON.stringify({pid: pid})});
-    if(r.ok){
-      log('已切换到实例 PID ' + pid);
-      toast('已切换 Mechanical 实例');
+    if(!r.ok){ log('连接失败：' + (r.error || '')); toast('连接失败'); setBusy(false); return; }
+    if(r.connected){
+      log(r.message || '已切换');
+      toast('已切换到 PID ' + pid);
       await loadAgents();
-  loadExperience();
-  renderFlow();
       await refresh();
-      await loadCategories();
-      loadProject();
-    }else{ toast('切换失败'); }
-  }catch(e){ log('切换异常：'+e); }
+    }else{
+      log('未连接：' + (r.message || ''));
+      log('命令已放入剪贴板：' + (r.command || ''));
+      showConnectGuide(pid, r);
+      toast('命令已复制，请在 Mechanical 里粘贴');
+      // 之后自动轮询，连上会自己变状态
+    }
+  }catch(e){ log('连接异常：' + e); }
+  setBusy(false);
 }
+
+function showConnectGuide(pid, r){
+  const box = $('connectGuide');
+  if(!box) return;
+  box.style.display = 'block';
+  box.innerHTML = `
+    <div style="font-size:12.5px;line-height:1.7">
+      <b style="color:#ffd48a">PID ${pid} 还没连接</b>，按下面 3 步（命令已在剪贴板）：
+      <div style="margin-top:6px">1. 切到那个 Mechanical 窗口（已帮你激活）</div>
+      <div>2. 点顶部 <b>Automation（自动化）</b> → <b>Scripting（脚本）</b></div>
+      <div>3. 点脚本框，按 <b>Ctrl+V</b>，再按 <b>Enter</b>（或点绿色 ▶）</div>
+      <div class="muted" style="margin-top:6px">命令：<code>${(r.command||'').replace(/</g,'&lt;')}</code></div>
+      <div style="margin-top:8px">
+        <button class="btn" onclick="copyConnectCmd()" style="padding:3px 10px">再复制一次命令</button>
+        <button class="btn" onclick="loadAgents()" style="padding:3px 10px">我粘好了，重试</button>
+        <button class="btn" onclick="$('connectGuide').style.display='none'" style="padding:3px 10px">关闭</button>
+      </div>
+    </div>`;
+}
+
+function copyConnectCmd(){
+  const cmd = 'execfile("D:/ai/meshkit/app/bridge_agent.py")';
+  if(navigator.clipboard){
+    navigator.clipboard.writeText(cmd).then(
+      () => toast('命令已复制'), () => toast('复制失败，请手动选中'));
+  }else{
+    toast('请手动复制：' + cmd);
+  }
+}
+
 
 /* ---------------- 当前模型文件名 ---------------- */
 async function loadProject(){
@@ -1925,7 +1975,8 @@ $('btnHoleQuality').onclick = runHoleQuality;
 $('btnScan').onclick = runScan;
 $('btnUngroup').onclick = ungroupAll;
 $('btnScanApply').onclick = applyScan;
-$('agentSel').onchange = e => selectAgent(parseInt(e.target.value, 10));
+$('agentSel').onchange = () => loadAgents();
+  const _bc = $('btnConnect'); if(_bc) _bc.onclick = connectSelected;
 $('btnFailList').onclick = failList;
 $('btnAI').onclick = aiAnalyze;
 $('btnScanCat').onclick = loadCategories;
@@ -1977,7 +2028,7 @@ $('btnSaveLLM').onclick = async () => {
   log('MeshKit AI 已就绪。');
   setInterval(refresh, 15000);
   setInterval(loadProject, 30000);
-  setInterval(loadAgents, 10000);
+  setInterval(loadAgents, 5000);
   setInterval(loadExperience, 30000);
   // 错误日志只在生成网格后扫描一次，不做定时轮询
   // 失败体只在生成网格 / 手动刷新时读取，不做定时轮询
