@@ -843,17 +843,27 @@ function showConnectGuide(pid, r){
   const box = $('connectGuide');
   if(!box) return;
   box.style.display = 'block';
+  const stage = r.stage ? ('（自动尝试停在：' + r.stage + '）') : '';
   box.innerHTML = `
-    <div style="font-size:12.5px;line-height:1.7">
-      <b style="color:#ffd48a">PID ${pid} 还没连接</b>，按下面 3 步（命令已在剪贴板）：
-      <div style="margin-top:6px">1. 切到那个 Mechanical 窗口（已帮你激活；若没跳到前面，
-           点任务栏里闪烁的「${(r.pid||'')} - Mechanical」，或按 Alt+Tab）</div>
-      <div>2. 点顶部 <b>Automation（自动化）</b> → <b>Scripting（脚本）</b></div>
-      <div>3. 点脚本框，按 <b>Ctrl+V</b>，再按 <b>Enter</b>（或点绿色 ▶）</div>
-      <div class="muted" style="margin-top:6px">命令：<code>${(r.command||'').replace(/</g,'&lt;')}</code></div>
+    <div style="font-size:12.5px;line-height:1.75">
+      <b style="color:#ffd48a">PID ${pid} 自动连接未成功</b>${stage}
+      <div style="margin-top:8px">页面已经做了：</div>
+      <div class="muted" style="margin-left:8px">
+        · 把该 Mechanical 窗口激活并最大化<br>
+        · 自动打开 Scripting 面板（如未打开）<br>
+        · 发送 Ctrl+F5 运行（最多 3 次）
+      </div>
+      <div style="margin-top:8px">还需要你手动一步：</div>
+      <div style="margin-left:8px">
+        1. 切到那个 Mechanical 窗口<br>
+        2. 点一下右侧 Scripting 面板里的<b>代码区</b>（光标进去）<br>
+        3. 按 <b>Ctrl+F5</b>（编辑器里已保留 <code>execfile(...)</code> 命令）
+      </div>
+      <div class="muted" style="margin-top:6px">
+        命令：<code>${(r.command||'').replace(/</g,'&lt;')}</code>
+      </div>
       <div style="margin-top:8px">
-        <button class="btn" onclick="copyConnectCmd()" style="padding:3px 10px">再复制一次命令</button>
-        <button class="btn" onclick="loadAgents()" style="padding:3px 10px">我粘好了，重试</button>
+        <button class="btn" onclick="loadAgents()" style="padding:3px 10px">我按完了，重试检测</button>
         <button class="btn" onclick="$('connectGuide').style.display='none'" style="padding:3px 10px">关闭</button>
       </div>
     </div>`;
