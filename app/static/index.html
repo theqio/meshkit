@@ -103,6 +103,9 @@
   <button class="btn" id="btnSettings" title="设置（大模型密钥等）">设置</button>
 </header>
 
+<div id="targetBar" style="display:flex;align-items:center;gap:10px;padding:6px 18px;
+     background:#1a2230;border-bottom:1px solid #27313f;font-size:12px"></div>
+
 <div id="flowBar" style="display:flex;gap:6px;flex-wrap:wrap;padding:8px 18px;
      border-bottom:1px solid var(--line);background:#121820;font-size:12px"></div>
 
@@ -389,7 +392,14 @@ async function cancelOp(){
 }
 async function api(path, opts){
   const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
-  return await r.json();
+  const json = await r.json();
+  if(json && json.blocked){
+    try{
+      log('⛔ 已阻止：' + (json.error || '目标实例不在前台'));
+      toast('已阻止：避免操作到别的模型');
+    }catch(e){}
+  }
+  return json;
 }
 const fmt = n => (n||0).toLocaleString('en-US');
 
@@ -799,6 +809,24 @@ async function loadAgents(){
       return `<option value="${x.pid}"${pick}>` +
         `${x.connected ? '●' : '○'} ${x.project || ('PID ' + x.pid)} · ${x.pid} · ${st}${tgt}</option>`;
     }).join('');
+    // 目标状态条
+    const tb = $('targetBar');
+    if(tb){
+      const tgt = INSTANCES.find(x => x.target);
+      const fg = r.foreground;
+      const fgp = fg ? INSTANCES.find(x => x.pid === fg) : null;
+      if(tgt){
+        tb.innerHTML =
+          `<span style="color:#7ee2a8">当前操作目标：<b>${tgt.project || ('PID ' + tgt.pid)}</b>` +
+          `<span class="muted">（PID ${tgt.pid}${tgt.connected ? '' : ' · 未连接'}）</span></span>` +
+          `<span style="flex:1"></span>` +
+          (fg && fg !== tgt.pid
+            ? `<span style="color:#ffb84d">⚠ 前台窗口是 ${fgp ? fgp.project : fg}，写操作前会自动切到目标</span>`
+            : `<span class="muted">前台：${fgp ? fgp.project : '非 Mechanical 窗口'}</span>`);
+      }else{
+        tb.innerHTML = '<span style="color:#ff9b9b">未选择目标实例</span>';
+      }
+    }
     // 前台窗口 vs 目标实例 提醒
     const fgEl = $('fgWarn');
     if(fgEl){

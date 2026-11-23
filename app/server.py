@@ -1039,7 +1039,9 @@ MUTATING_OPS = {
 
 
 def _foreground_mech_pid():
-    """当前前台窗口如果是 Mechanical，返回其 pid，否则 None"""
+    """当前前台窗口如果是 Mechanical 进程，返回其 pid，否则 None
+       （按进程判定，未注册代理的 Mechanical 也算）
+    """
     try:
         import ctypes
         import ctypes.wintypes as wt
@@ -1050,27 +1052,53 @@ def _foreground_mech_pid():
         pid = wt.DWORD()
         user32.GetWindowThreadProcessId(h, ctypes.byref(pid))
         p = int(pid.value)
+        # 先看已注册代理
         for a in _agents_raw():
             if int(a.get("pid") or 0) == p:
                 return p
+        # 再看所有 Mechanical 进程（覆盖未注册代理的窗口）
+        try:
+            for item in _list_mech_procs():
+                if int(item.get("pid") or 0) == p:
+                    return p
+        except Exception:
+            pass
         return None
     except Exception:
         return None
 
 
-def ensure_target_front():
-    """把目标实例切到前台；返回 (是否切换过, 切换前的前台 pid)"""
+def ensure_target_front(strict=True):
+    """确保目标实例在前台
+       返回 dict: {ok, switched, front_before, front_after}
+       strict=True 且最终不在前台 → ok=False（调用方应拒绝执行）
+    """
     tgt = target_pid()
     if not tgt:
-        return False, None
+        return {"ok": False, "switched": False, "front_before": None,
+                "front_after": None, "error": "没有可用的目标实例"}
     front = _foreground_mech_pid()
     if front == tgt:
-        return False, front
+        return {"ok": True, "switched": False, "front_before": front,
+                "front_after": front}
+    switched = False
     try:
-        act = _activate_window(int(tgt))
-        return (act == "ok"), front
+        if _activate_window(int(tgt)) == "ok":
+            switched = True
     except Exception:
-        return False, front
+        pass
+    time.sleep(0.35)
+    after = _foreground_mech_pid()
+    if after == tgt:
+        return {"ok": True, "switched": switched, "front_before": front,
+                "front_after": after}
+    if not strict:
+        return {"ok": True, "switched": switched, "front_before": front,
+                "front_after": after}
+    return {"ok": False, "switched": switched, "front_before": front,
+            "front_after": after,
+            "error": "目标实例不在前台（前台是 %s），已阻止本次写操作"
+                     % (after if after else "其它窗口")}
 
 
 def _mech_auto_connect(pid):
@@ -3646,9 +3674,15 @@ tr:hover td{background:#141a22}
                 if not bridge_alive():
                     return self._json({"ok": False, "error": "桥接代理未运行"})
                 try:
-                    ensure_target_front()
+                    _guard = ensure_target_front(strict=True)
                 except Exception:
-                    pass
+                    _guard = {"ok": True}
+                if not _guard.get("ok"):
+                    return self._json({
+                        "ok": False, "blocked": True,
+                        "error": _guard.get("error") or "目标实例不在前台",
+                        "front_pid": _guard.get("front_after"),
+                        "target_pid": target_pid()})
                 # 1) 纯几何识别（不看名字）
                 lb = call_bridge("list_bodies", timeout=300)
                 if not lb.get("ok"):
@@ -3712,9 +3746,15 @@ tr:hover td{background:#141a22}
                 payload = body.get("payload") or {}
                 if op in MUTATING_OPS:
                     try:
-                        ensure_target_front()
+                        _guard = ensure_target_front(strict=True)
                     except Exception:
-                        pass
+                        _guard = {"ok": True}
+                    if not _guard.get("ok"):
+                        return self._json({
+                            "ok": False, "blocked": True,
+                            "error": _guard.get("error") or "目标实例不在前台",
+                            "front_pid": _guard.get("front_after"),
+                            "target_pid": target_pid()})
                 if not bridge_alive():
                     return self._json({"ok": False, "bridge_offline": True,
                                        "error": "桥接代理未运行（bridge_agent.py）"})
