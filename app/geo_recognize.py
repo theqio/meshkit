@@ -106,8 +106,10 @@ def _gap(a, b):
     return math.sqrt(gx * gx + gy * gy + gz * gz)
 
 
-def recognize(bodies):
-    """bodies: list_bodies 返回的体列表 → {部位: [体名]} + 置信度信息"""
+def recognize(bodies, extra=None):
+    """bodies: list_bodies 返回的体列表 → {部位: [体名]} + 置信度信息
+       extra: {类别: [尺寸签名]} 额外规则（来自勾选的知识包）
+    """
     # 被抑制的体也要纳入识别（否则会显示不全），只是标记出来
     bodies = list(bodies or [])
     names = [b.get("name") for b in bodies]
@@ -144,6 +146,14 @@ def recognize(bodies):
             sd = _parse_sig(s.get("sig") or "")
             if sd:
                 sig_table.append((sd, lab))
+
+    # 叠加知识包规则（勾选的常用配置里的分组几何特征）
+    if extra:
+        for lab, sigs in (extra or {}).items():
+            for s in sigs or []:
+                sd = _parse_sig(s)
+                if sd:
+                    sig_table.append((sd, lab))
 
     pred = {}
 

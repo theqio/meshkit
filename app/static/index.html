@@ -248,7 +248,19 @@
       <h2 style="margin-top:14px">大模型分析</h2>
       <div class="llm" id="llmText"></div>
     </div>
-  <h2 style="margin-top:18px">常用配置</h2>
+  <h2 style="margin-top:18px">知识包（可多选，自动参与识别）</h2>
+    <div class="muted" style="margin-bottom:6px;font-size:12px">
+      把每个集装箱模型的分组几何特征存下来；勾选后，新模型会自动合并这些特征来提高识别率，
+      并自动套用其中的尺寸/方法（不用再点应用）。</div>
+    <div style="display:flex;gap:6px;margin-bottom:8px">
+      <input type="text" id="kbName" placeholder="知识包名称（如：1000c4 / 2000c4）"
+             style="flex:1;min-width:0">
+      <button class="btn primary" id="btnKbCapture" style="padding:6px 12px"
+              title="把当前模型的识别分组 + 几何尺寸 + 尺寸/方法存成知识包">存为知识包</button>
+    </div>
+    <div id="kbList" style="max-height:220px;overflow:auto;font-size:12px"></div>
+
+    <h2 style="margin-top:18px">常用配置</h2>
     <div class="muted" id="favHint" style="margin-bottom:6px">手动保存当前尺寸+方法为一套配置</div>
     <div style="display:flex;gap:6px;margin-bottom:8px">
       <input type="text" id="favName" placeholder="配置名称（如：标准粗网格）"
@@ -1358,6 +1370,74 @@ async function loadErrorLog(){
   }catch(e){ /* 忽略 */ }
 }
 
+/* ---------------- 知识包 ---------------- */
+async function loadKb(){
+  const box = $('kbList');
+  if(!box) return;
+  try{
+    const r = await api('/api/kb');
+    if(!r.ok){ box.innerHTML = '<div class="muted">读取失败</div>'; return; }
+    const packs = r.packs || [];
+    if(!packs.length){
+      box.innerHTML = '<div class="muted">还没有知识包。填名称点「存为知识包」。</div>';
+      return;
+    }
+    box.innerHTML = packs.map(p => `
+      <div style="display:flex;align-items:center;gap:6px;padding:3px 0;
+                  border-bottom:1px solid #1b2430">
+        <input type="checkbox" data-kb="${p.name}" ${p.enabled?'checked':''}
+               style="margin:0">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          ${p.name}
+          <span class="muted" style="font-size:11px">
+            ${p.categories} 类 / ${p.sigs} 个尺寸组合</span>
+        </span>
+        <button class="btn" data-kbdel="${p.name}"
+                style="padding:1px 7px;font-size:11px">删</button>
+      </div>`).join('');
+    box.querySelectorAll('input[data-kb]').forEach(el => {
+      el.onchange = async () => {
+        const name = el.getAttribute('data-kb');
+        const on = el.checked;
+        await api('/api/kb/toggle', {method:'POST',
+          body: JSON.stringify({name: name, on: on})});
+        log(`知识包「${name}」${on?'已启用':'已停用'}`);
+        await loadCategories();
+      };
+    });
+    box.querySelectorAll('button[data-kbdel]').forEach(btn => {
+      btn.onclick = async () => {
+        const name = btn.getAttribute('data-kbdel');
+        if(!confirm(`删除知识包「${name}」？`)) return;
+        await api('/api/kb/delete', {method:'POST',
+          body: JSON.stringify({name: name})});
+        log(`已删除知识包「${name}」`);
+        loadKb();
+      };
+    });
+  }catch(e){ /* 忽略 */ }
+}
+
+async function captureKb(){
+  const name = ($('kbName') && $('kbName').value.trim()) || '';
+  if(!name){ toast('先填知识包名称'); $('kbName') && $('kbName').focus(); return; }
+  setBusy(true, '保存知识包');
+  try{
+    const r = await api('/api/kb/capture', {method:'POST',
+      body: JSON.stringify({name: name})});
+    if(r.ok){
+      log(`知识包「${r.name}」已保存：${r.categories} 个类别`);
+      toast('已保存并启用');
+      if($('kbName')) $('kbName').value = '';
+      await loadKb();
+    }else{
+      log('保存失败：' + (r.error || ''));
+      toast('保存失败');
+    }
+  }catch(e){ log('保存异常：' + e); }
+  setBusy(false);
+}
+
 /* ---------------- 经验库 ---------------- */
 const ACTION_LABEL = {
   size: '降低尺寸', sweep: '扫掠', defeature: '去特征', apply: '应用设置',
@@ -2003,6 +2083,7 @@ async function aiAnalyze(){
 $('btnRefresh').onclick = refresh;
 $('btnStop').onclick = cancelOp;
 $('btnFavSave').onclick = saveFavorite;
+  const _kbBtn = $('btnKbCapture'); if(_kbBtn) _kbBtn.onclick = captureKb;
 $('btnMemSave').onclick = saveMemory;
 $('btnMemCapture').onclick = capturePlan;
 $('btnScale').onclick = scaleAllSizes;
@@ -2061,6 +2142,7 @@ $('btnSaveLLM').onclick = async () => {
 
 /* ---------------- 启动 ---------------- */
 (async function init(){
+  loadKb();
   await loadConfig();
   await refresh();
   if($('dot').className.indexOf('on') >= 0) await loadCategories();
