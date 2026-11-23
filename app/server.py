@@ -704,6 +704,114 @@ def _bodies_once():
     return []
 
 
+def migrate_overrides_per_model():
+    """旧全局覆盖表 → 按模型拆分（只保留能解析的体 Id/体名）"""
+    legacy = os.path.join(APP_DIR, "group_overrides.json")
+    if not os.path.isfile(legacy):
+        return {"ok": True, "note": "没有旧文件"}
+    try:
+        with open(legacy, encoding="utf-8") as f:
+            old = json.load(f) or {}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:80]}
+    if not old:
+        return {"ok": True, "note": "旧文件为空"}
+
+    report = []
+    for a in _agents_raw():
+        pid = int(a.get("pid"))
+        try:
+            name, path = _project_of_pid(pid)
+        except Exception:
+            name, path = (a.get("project"), a.get("project"))
+        base = (name or "").strip()
+        if base.lower().endswith(".wbpj"):
+            base = base[:-5]
+        key = "".join(c if (c.isalnum() or c in "-_") else "_" for c in base)[:60]
+        if not key:
+            continue
+        try:
+            lb = call_bridge_pid(pid, "list_bodies", {}, timeout=40)
+        except Exception:
+            continue
+        if not lb.get("ok"):
+            report.append({"model": key, "error": "读不到体"})
+            continue
+        id2name = {}
+        names = set()
+        for b in (lb.get("bodies") or []):
+            if b.get("id") is not None:
+                id2name[str(b["id"])] = b.get("name")
+            if b.get("name"):
+                names.add(b["name"])
+        keep = {}
+        dropped = 0
+        for k, v in old.items():
+            if str(k) in id2name:
+                keep[str(k)] = v
+            elif str(k) in names:
+                keep[str(k)] = v
+            else:
+                dropped += 1
+        outp = os.path.join(APP_DIR, "group_overrides__%s.json" % key)
+        try:
+            with open(outp, "w", encoding="utf-8") as f:
+                json.dump(keep, f, ensure_ascii=False, indent=1)
+        except Exception as e:
+            report.append({"model": key, "error": str(e)[:60]})
+            continue
+        report.append({"model": key, "kept": len(keep), "dropped": dropped})
+    try:
+        os.rename(legacy, legacy + ".bak")
+    except Exception:
+        pass
+    return {"ok": True, "report": report, "legacy": "已改名为 .bak"}
+
+
+def _model_key():
+    """当前目标模型的短标识（工程文件名，去掉扩展名）"""
+    try:
+        tp = target_pid()
+        if tp:
+            name, path = _project_of_pid(tp)
+            base = name or (os.path.basename(path or "") if path else "")
+            base = (base or "").strip()
+            if base.lower().endswith(".wbpj"):
+                base = base[:-5]
+            if base:
+                return "".join(c if (c.isalnum() or c in "-_") else "_"
+                               for c in base)[:60]
+    except Exception:
+        pass
+    return "default"
+
+
+def _ovr_path(key=None):
+    return os.path.join(APP_DIR, "group_overrides__%s.json" % (key or _model_key()))
+
+
+def _ovr_load():
+    """读当前模型的覆盖表；没有则回退旧全局文件"""
+    for p in (_ovr_path(), os.path.join(APP_DIR, "group_overrides.json")):
+        try:
+            if os.path.isfile(p):
+                with open(p, encoding="utf-8") as f:
+                    return json.load(f) or {}, p
+        except Exception:
+            continue
+    return {}, None
+
+
+def _ovr_save(data):
+    """写当前模型的覆盖表"""
+    try:
+        with open(_ovr_path(), "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=1)
+        return True
+    except Exception:
+        return False
+
+
 def merge_custom_groups(groups):
     """把人工分组叠加到识别结果上
        - 覆盖表键：体 Id（新）或体名（兼容旧数据）
@@ -3302,6 +3410,18 @@ class Handler(BaseHTTPRequestHandler):
                 prog["ok"] = True
                 return self._json(prog)
 
+            if path == "/api/ovr/migrate":
+                return self._json(migrate_overrides_per_model())
+
+            if path == "/api/model_key":
+                try:
+                    _k = _model_key()
+                    return self._json({"ok": True, "key": _k,
+                                       "path": _ovr_path(_k),
+                                       "exists": os.path.isfile(_ovr_path(_k))})
+                except Exception as e:
+                    return self._json({"ok": False, "error": str(e)[:80]})
+
             if path == "/api/kb":
                 return self._json(kb_list())
 
@@ -3964,15 +4084,9 @@ tr:hover td{background:#141a22}
                         break
                 if bid is None:
                     return self._json({"ok": False, "error": "找不到该体"})
-                p_ov = os.path.join(APP_DIR, "group_overrides.json")
-                try:
-                    with open(p_ov, encoding="utf-8") as f:
-                        ov = json.load(f) or {}
-                except Exception:
-                    ov = {}
+                ov, _src = _ovr_load()
                 ov[str(bid)] = to
-                with open(p_ov, "w", encoding="utf-8") as f:
-                    json.dump(ov, f, ensure_ascii=False, indent=1)
+                _ovr_save(ov)
                 return self._json({"ok": True, "body": name, "id": bid, "to": to,
                                    "overrides": len(ov)})
 
