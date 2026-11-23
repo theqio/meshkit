@@ -3938,6 +3938,8 @@ tr:hover td{background:#141a22}
                         _EXP["failed_before"] = set(new_failed)
                     except Exception:
                         pass
+                if _ran_on and isinstance(res, dict):
+                    res["ran_on"] = _ran_on
                 return self._json(res)
 
             if path == "/api/kb/capture":
