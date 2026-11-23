@@ -912,6 +912,19 @@ def instances_list():
             "busy": bool((a or {}).get("busy")),
             "target": (pid == tgt),
         })
+    alive_pids = set(x["pid"] for x in out)
+    if out and tgt not in alive_pids:
+        # 选中的实例已关闭：切到第一个（优先已连接）
+        pick = next((x["pid"] for x in out if x["connected"]), out[0]["pid"])
+        try:
+            cfg = load_config()
+            cfg["target_pid"] = pick
+            save_config(cfg)
+            tgt = pick
+            for x in out:
+                x["target"] = (x["pid"] == pick)
+        except Exception:
+            pass
     out.sort(key=lambda x: (not x["connected"], x["pid"]))
     return {"ok": True, "instances": out,
             "connected_count": sum(1 for x in out if x["connected"]),
@@ -920,7 +933,51 @@ def instances_list():
 
 
 def _activate_window(pid):
-    """把指定 pid 的 Mechanical 窗口切到前台"""
+    """把指定 pid 的 Mechanical 窗口切到前台（AttachThreadInput 方式）"""
+    try:
+        import ctypes
+        import ctypes.wintypes as wt
+        user32 = ctypes.windll.user32
+        k32 = ctypes.windll.kernel32
+
+        class RECT(ctypes.Structure):
+            _fields_ = [("L", ctypes.c_long), ("T", ctypes.c_long),
+                        ("R", ctypes.c_long), ("B", ctypes.c_long)]
+
+        found = []
+
+        @ctypes.WINFUNCTYPE(ctypes.c_bool, wt.HWND, wt.LPARAM)
+        def cb(h, l):
+            p = wt.DWORD()
+            user32.GetWindowThreadProcessId(h, ctypes.byref(p))
+            if p.value == int(pid) and user32.IsWindowVisible(h):
+                r = RECT()
+                user32.GetWindowRect(h, ctypes.byref(r))
+                if r.R - r.L > 800 and r.B - r.T > 600:
+                    found.append(h)
+            return True
+
+        user32.EnumWindows(cb, 0)
+        if not found:
+            return "nowin"
+        h = found[0]
+        user32.keybd_event(0x12, 0, 0, 0)
+        user32.keybd_event(0x12, 0, 2, 0)
+        time.sleep(0.12)
+        cur = k32.GetCurrentThreadId()
+        tgt = user32.GetWindowThreadProcessId(h, None)
+        user32.AttachThreadInput(cur, tgt, True)
+        user32.BringWindowToTop(h)
+        user32.SetForegroundWindow(h)
+        user32.AttachThreadInput(cur, tgt, False)
+        time.sleep(0.35)
+        return "ok" if user32.GetForegroundWindow() == h else "no"
+    except Exception as e:
+        return "err:%s" % str(e)[:40]
+
+
+def _activate_window_ps(pid):
+    """旧的 powershell 兜底方式"""
     try:
         cmd = [
             "powershell", "-NoProfile", "-NonInteractive", "-Command",
@@ -983,6 +1040,13 @@ def connect_instance(pid):
 
     # 未连接：激活 + 复制命令
     act = _activate_window(pid)
+    if act not in ("ok",):
+        try:
+            act2 = _activate_window_ps(pid)
+            if act2 == "ok":
+                act = "ok"
+        except Exception:
+            pass
     clip = _set_clipboard(MECH_CONNECT_CMD)
     return {"ok": True, "connected": False, "pid": pid,
             "activated": act, "clipboard": clip,
@@ -1939,16 +2003,6 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/instances":
                 return self._json(instances_list())
 
-            if path == "/api/connect":
-                body = self._body()
-                try:
-                    pid = int(body.get("pid") or 0)
-                except Exception:
-                    pid = 0
-                if not pid:
-                    return self._json({"ok": False, "error": "缺少 pid"})
-                return self._json(connect_instance(pid))
-
             if path == "/api/agents":
                 return self._json({"ok": True, "agents": agents_list(),
                                    "target": target_pid()})
@@ -2851,6 +2905,16 @@ tr:hover td{background:#141a22}
                 cfg["hole_cats"] = cats
                 save_config(cfg)
                 return self._json({"ok": True, "hole_cats": cats})
+
+            if path == "/api/connect":
+                body = self._body()
+                try:
+                    pid = int(body.get("pid") or 0)
+                except Exception:
+                    pid = 0
+                if not pid:
+                    return self._json({"ok": False, "error": "缺少 pid"})
+                return self._json(connect_instance(pid))
 
             if path == "/api/agent/select":
                 body = self._body()

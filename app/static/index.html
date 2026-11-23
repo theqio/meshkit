@@ -759,6 +759,7 @@ async function setParam(cat, apiName, value){
 let AGENTS = [], AGENT_TARGET = null;
 
 let INSTANCES = [];
+let PICKED_PID = null;      // 用户手动选中的实例，轮询时保持不变
 
 async function loadAgents(){
   const sel = $('agentSel');
@@ -771,14 +772,20 @@ async function loadAgents(){
       sel.innerHTML = '<option>没有检测到 Mechanical</option>';
       return;
     }
+    // 用户选过的不动；没选过则默认选当前目标
+    if(PICKED_PID === null || !INSTANCES.some(x => x.pid === PICKED_PID)){
+      const t = INSTANCES.find(x => x.target);
+      PICKED_PID = t ? t.pid : INSTANCES[0].pid;
+    }
     sel.innerHTML = INSTANCES.map(x => {
       const st = x.connected ? '已连接' : '未连接';
       const tgt = x.target ? ' ★' : '';
-      return `<option value="${x.pid}"${x.target ? ' selected' : ''}>` +
+      const pick = (x.pid === PICKED_PID) ? ' selected' : '';
+      return `<option value="${x.pid}"${pick}>` +
         `${x.connected ? '●' : '○'} ${x.project || ('PID ' + x.pid)} · ${x.pid} · ${st}${tgt}</option>`;
     }).join('');
     // 连接按钮文字随选择变化
-    const cur = INSTANCES.find(x => String(x.pid) === sel.value) || INSTANCES[0];
+    const cur = INSTANCES.find(x => x.pid === PICKED_PID) || INSTANCES[0];
     const btn = $('btnConnect');
     if(btn) btn.textContent = cur && cur.connected ? '切换' : '连接';
   }catch(e){ /* 忽略 */ }
@@ -787,8 +794,9 @@ async function loadAgents(){
 async function connectSelected(){
   const sel = $('agentSel');
   if(!sel || !sel.value) return;
-  const pid = parseInt(sel.value, 10);
+  const pid = PICKED_PID || parseInt(sel.value, 10);
   const inst = INSTANCES.find(x => x.pid === pid) || {};
+  PICKED_PID = pid;
   setBusy(true, inst.connected ? '切换实例' : '连接实例');
   try{
     const r = await api('/api/connect', {method:'POST',
@@ -797,6 +805,7 @@ async function connectSelected(){
     if(r.connected){
       log(r.message || '已切换');
       toast('已切换到 PID ' + pid);
+      PICKED_PID = pid;
       await loadAgents();
       await refresh();
     }else{
@@ -804,6 +813,24 @@ async function connectSelected(){
       log('命令已放入剪贴板：' + (r.command || ''));
       showConnectGuide(pid, r);
       toast('命令已复制，请在 Mechanical 里粘贴');
+      // 30 秒内快速轮询，粘贴执行后立刻变「已连接」
+      if(window.__connTimer) clearInterval(window.__connTimer);
+      let ticks = 0;
+      window.__connTimer = setInterval(async () => {
+        ticks++;
+        await loadAgents();
+        const hit = (INSTANCES || []).find(x => x.pid === pid && x.connected);
+        if(hit || ticks > 15){
+          clearInterval(window.__connTimer);
+          window.__connTimer = null;
+          if(hit){
+            toast('已连接：' + (hit.project || ('PID ' + pid)));
+            const g = $('connectGuide');
+            if(g) g.style.display = 'none';
+            await refresh();
+          }
+        }
+      }, 2000);
       // 之后自动轮询，连上会自己变状态
     }
   }catch(e){ log('连接异常：' + e); }
@@ -1975,7 +2002,12 @@ $('btnHoleQuality').onclick = runHoleQuality;
 $('btnScan').onclick = runScan;
 $('btnUngroup').onclick = ungroupAll;
 $('btnScanApply').onclick = applyScan;
-$('agentSel').onchange = () => loadAgents();
+$('agentSel').onchange = (e) => {
+    PICKED_PID = parseInt(e.target.value, 10) || null;
+    const inst = INSTANCES.find(x => x.pid === PICKED_PID) || {};
+    const btn = $('btnConnect');
+    if(btn) btn.textContent = inst.connected ? '切换' : '连接';
+  };
   const _bc = $('btnConnect'); if(_bc) _bc.onclick = connectSelected;
 $('btnFailList').onclick = failList;
 $('btnAI').onclick = aiAnalyze;
