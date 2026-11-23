@@ -2105,6 +2105,59 @@ def regroup_by_name(dry=False):
             "detail": r.get("groups") or []}
 
 
+def _snapshot_groups():
+    """当前 Geometry 分组快照 {名字: [体名]}"""
+    try:
+        gg = call_bridge("geom_groups", timeout=300)
+        out = {}
+        for g in (gg.get("groups") or []):
+            ns = list(g.get("bodies") or [])
+            if ns:
+                out[g.get("name")] = ns
+        return out
+    except Exception:
+        return {}
+
+
+def _verify_groups(expected):
+    """校验分组是否都建好；返回缺失/不一致列表"""
+    try:
+        gg = call_bridge("geom_groups", timeout=300)
+        have = {}
+        for g in (gg.get("groups") or []):
+            have[g.get("name")] = set(g.get("bodies") or [])
+        bad = []
+        for name, members in expected.items():
+            got = have.get(name)
+            if got is None:
+                bad.append({"group": name, "reason": "缺失",
+                            "want": len(members), "got": 0})
+                continue
+            want = set(members)
+            if got != want:
+                bad.append({"group": name, "reason": "成员不一致",
+                            "want": len(want), "got": len(got),
+                            "missing": sorted(want - got)[:5],
+                            "extra": sorted(got - want)[:5]})
+        return bad
+    except Exception as e:
+        return [{"group": "-", "reason": "校验失败: %s" % str(e)[:80]}]
+
+
+def _restore_groups(snapshot):
+    """用快照把分组重建回去（尽力而为）"""
+    if not snapshot:
+        return {"ok": False, "error": "没有快照"}
+    items = [{"group": k, "bodies": v} for k, v in snapshot.items() if v]
+    try:
+        call_bridge("ungroup_folders", {"names": ["*"]}, timeout=1800)
+        r = call_bridge("group_geometry", {"items": items}, timeout=3600)
+        return {"ok": bool(r.get("ok")), "groups": r.get("groups"),
+                "failed": r.get("failed")}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+
+
 def scan_model(profile_name=None):
     """全局扫描：每个体给出建议组名 + 几何依据（不改模型）"""
     sys.path.insert(0, APP_DIR)
@@ -3719,7 +3772,9 @@ tr:hover td{background:#141a22}
                         if rec2.get("groups"):
                             groups = rec2["groups"]
             
-                # 先解散所有旧分组，保证结构扁平、不嵌套
+                # 解散前先记下当前分组（失败可回滚）
+                _before = _snapshot_groups()
+                out["snapshot_groups"] = len(_before)
                 try:
                     call_bridge("ungroup_folders", {"names": ["*"]},
                                 timeout=1800)
@@ -3735,6 +3790,36 @@ tr:hover td{background:#141a22}
                     out["geom_skipped"] = len(gg.get("skipped") or [])
                     if gg.get("failed"):
                         out["errors"].extend(gg["failed"][:5])
+
+                    # 建完核对：缺组/成员不一致 → 重试一次 → 仍不行就回滚
+                    _failed_groups = set()
+                    for _m in (gg.get("failed") or []):
+                        try:
+                            _failed_groups.add(str(_m).split(":")[0].strip())
+                        except Exception:
+                            pass
+                    _want = {g: ns for g, ns in groups.items()
+                             if ns and g not in _failed_groups}
+                    _bad = _verify_groups(_want)
+                    if _bad:
+                        out["verify_failed"] = _bad[:8]
+                        try:
+                            _items = [{"group": g, "bodies": ns}
+                                      for g, ns in groups.items() if ns]
+                            call_bridge("group_geometry", {"items": _items},
+                                        timeout=3600)
+                            _bad2 = _verify_groups(
+                                {g: ns for g, ns in groups.items() if ns})
+                        except Exception:
+                            _bad2 = _bad
+                        if _bad2:
+                            out["errors"].append(
+                                "分组重建未通过校验，已尝试回滚到原分组")
+                            _rb = _restore_groups(_before)
+                            out["rollback"] = _rb
+                        else:
+                            out["verify_failed"] = []
+                            out["retried"] = True
             
                 # 4) 自动保存（防崩溃丢结果）
                 out["saved"] = safe_save("scan_apply")
@@ -3744,6 +3829,7 @@ tr:hover td{background:#141a22}
                 body = self._body()
                 op = body.get("op") or ""
                 payload = body.get("payload") or {}
+                _ran_on = None
                 if op in MUTATING_OPS:
                     try:
                         _guard = ensure_target_front(strict=True)
@@ -3755,6 +3841,12 @@ tr:hover td{background:#141a22}
                             "error": _guard.get("error") or "目标实例不在前台",
                             "front_pid": _guard.get("front_after"),
                             "target_pid": target_pid()})
+                    try:
+                        _tp = target_pid()
+                        _pn, _pp = _project_of_pid(_tp)
+                        _ran_on = {"pid": _tp, "project": _pn}
+                    except Exception:
+                        _ran_on = {"pid": target_pid()}
                 if not bridge_alive():
                     return self._json({"ok": False, "bridge_offline": True,
                                        "error": "桥接代理未运行（bridge_agent.py）"})

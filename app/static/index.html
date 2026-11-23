@@ -399,6 +399,12 @@ async function api(path, opts){
       toast('已阻止：避免操作到别的模型');
     }catch(e){}
   }
+  if(json && json.ran_on && json.ran_on.project){
+    try{
+      log('✔ 本次改在：' + json.ran_on.project +
+          '（PID ' + json.ran_on.pid + '）');
+    }catch(e){}
+  }
   return json;
 }
 const fmt = n => (n||0).toLocaleString('en-US');
