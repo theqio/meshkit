@@ -4599,6 +4599,14 @@ tr:hover td{background:#141a22}
                     pass
                 return self._json(_res)
 
+            if path == "/api/controls_dedupe":
+                _r = call_bridge("dedupe_controls", {}, timeout=300)
+                try:
+                    cache_invalidate()
+                except Exception:
+                    pass
+                return self._json(_r)
+
             if path == "/api/agent/reload":
                 body = self._body()
                 try:
@@ -4899,8 +4907,16 @@ tr:hover td{background:#141a22}
                             # 已有控制项的类别 -> 改原控制项；没有的 -> 才新建
                             _existing = set()
                             try:
-                                _sc = call_bridge("scan_categories", timeout=90)
-                                _existing = set(c.get("name") for c in (_sc.get("categories") or []))
+                                _rp = call_bridge("read_plan", timeout=120)
+                                for _c in (_rp.get("controls") or []):
+                                    _nm = (_c.get("name") or "").strip()
+                                    for _pre in ("SIZE_FIX_", "SIZE_",
+                                                 "METHOD_", "SWEEP_", "SHELL_"):
+                                        if _nm.startswith(_pre):
+                                            _nm = _nm[len(_pre):]
+                                            break
+                                    if _nm:
+                                        _existing.add(_nm)
                             except Exception:
                                 pass
 

@@ -151,6 +151,8 @@
               title="把表格里所有类别的尺寸乘以该倍数">应用到全部类别</button>
     </div>
     <button class="btn primary wide" id="btnApply" style="margin-bottom:8px">应用设置与尺寸</button>
+    <button class="btn" id="btnDedupeCtl" style="margin-bottom:8px"
+            title="删掉重复的尺寸/方法控制项，每类只保留一个">清理重复控制项</button>
     <button class="btn wide" id="btnClearAll" style="margin-bottom:8px;background:#3b1d1d;border-color:#5b2a2a;color:#ffb4b4" title="清空模型里所有网格控制项与设置（保留 Geometry 分组）">一键清理全部配置</button>
 
     <h2 style="margin-top:18px">类别（自动读取模型）</h2>
@@ -2081,6 +2083,7 @@ function readMethodsFromUI(){
 /* ---------------- 操作 ---------------- */
 
 async function applyAll(){
+  if(BUSY){ toast('正在忙，请等当前操作结束'); return; }
   setBusy(true, '应用设置与尺寸（可能要 1~3 分钟）');
   try{
     const _sizes = readSizesFromUI();
@@ -2152,6 +2155,7 @@ async function analyzeMeshRun(){
 }
 
 async function generateMesh(){
+  if(BUSY){ toast('正在忙，请等当前操作结束'); return; }
   // 先预估规模，防止节点数过大把 Mechanical 跑崩
   let pre = null;
   try{
@@ -2218,7 +2222,29 @@ async function applyBodyFix(i){
   setBusy(false);
 }
 
+
+async function dedupeControls(){
+  if(BUSY){ toast('正在忙，稍后再试'); return; }
+  if(!confirm('将删除重复的尺寸/方法控制项（同名同类型只保留一个）。继续？')) return;
+  setBusy(true, '清理重复控制项');
+  try{
+    const r = await api('/api/controls_dedupe', {_timeoutMs: 600000, method:'POST', body:'{}'});
+    if(r.ok){
+      const n = r.removed_count || 0;
+      log(n ? `已删除 ${n} 个重复控制项：${(r.removed||[]).slice(0,8).join('、')}`
+            : '没有发现重复控制项');
+      toast(n ? `已清理 ${n} 个` : '无重复');
+      await loadCategories();
+    }else{
+      log('清理失败：' + (r.error || '代理不支持该命令，请先重载代理'));
+      toast('清理失败');
+    }
+  }catch(e){ log('清理异常：'+e); }
+  setBusy(false);
+}
+
 async function fixFailed(){
+  if(BUSY){ toast('正在忙，请等当前操作结束'); return; }
   if(!confirm('将自动把失败体从 Sweep 摘出并减半尺寸，重划最多 2 轮。继续？')) return;
   setBusy(true, '自动修复失败体');
   try{

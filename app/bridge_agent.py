@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.4"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.5"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -632,6 +632,48 @@ def op_probe_fix_props(payload):
         g = []
     out["mesh_props"] = g[:20]
     return out
+
+
+def op_dedupe_controls(payload):
+    """删除重复控制项：同一 (名字, 类型) 只保留一个
+       保留策略：作用域体数多的优先；相同时保留先出现的
+       返回 {ok, removed:[...], kept:[...]}
+    """
+    try:
+        _touch_ctrl()
+    except Exception:
+        pass
+    mesh = _mesh()
+    groups = {}
+    removed, kept, errors = [], [], []
+    for c in list(mesh.Children or []):
+        nm = _txt(_safe(c, "Name", u""))
+        cat = _txt(_safe(c, "DataModelObjectCategory", u"")) or u""
+        low = cat.lower()
+        is_sizing = (u"sizing" in low) or nm.startswith(u"SIZE_")
+        is_method = (u"method" in low) or nm.startswith(u"METHOD_")
+        if not (is_sizing or is_method):
+            continue
+        kind = "sizing" if is_sizing else "method"
+        try:
+            ids = [int(x) for x in (_safe(_safe(c, "Location"), "Ids") or [])]
+        except Exception:
+            ids = []
+        groups.setdefault((nm, kind), []).append((len(ids), c))
+    for (nm, kind), items in groups.items():
+        if len(items) <= 1:
+            continue
+        items.sort(key=lambda x: -x[0])
+        for cnt, c in items[1:]:
+            try:
+                c.Delete()
+                removed.append(nm)
+            except Exception as e:
+                errors.append(u"%s: %s" % (nm, _txt(e)[:50]))
+        kept.append(nm)
+    return {"ok": True, "removed": removed, "kept": kept,
+            "removed_count": len(removed), "errors": errors,
+            "groups": len(groups)}
 
 
 def op_fix_body(payload):
@@ -1582,6 +1624,13 @@ def op_apply(payload):
 
     applied["mesh_state"] = _txt(getattr(mesh, "ObjectState", u"-"))
     applied["ok"] = True
+    # 自动去重：避免"点了两次应用"产生两套控制项
+    try:
+        _dd = op_dedupe_controls({})
+        if _dd.get("removed_count"):
+            applied["deduped"] = _dd.get("removed")
+    except Exception:
+        pass
     return applied
 
 
@@ -5597,6 +5646,7 @@ OPS = {
     "set_string_value": op_set_string_value,
     "set_by_label": op_set_by_label,
     "pre_mesh_check": op_pre_mesh_check,
+    "dedupe_controls": op_dedupe_controls,
     "validate_controls": op_validate_controls,
     "cat_params_v2": op_cat_params_v2,
     "body_counts": op_body_counts,
