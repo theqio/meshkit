@@ -391,8 +391,24 @@ async function cancelOp(){
   }catch(e){ log('停止异常：'+e); }
 }
 async function api(path, opts){
-  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
-  const json = await r.json();
+  const opt = Object.assign({headers:{'Content-Type':'application/json'}}, opts||{});
+  // 默认 30 秒超时，避免 Mechanical 忙时页面一直转圈
+  if(!opt.signal && !opt._noTimeout){
+    const ctl = new AbortController();
+    opt.signal = ctl.signal;
+    setTimeout(() => ctl.abort(), opt._timeoutMs || 30000);
+  }
+  let r;
+  try{
+    r = await fetch(path, opt);
+  }catch(e){
+    if(e && e.name === 'AbortError') return {ok:false, timeout:true,
+      error:'请求超时（Mechanical 可能正忙）'};
+    throw e;
+  }
+  let json;
+  try{ json = await r.json(); }
+  catch(e){ return {ok:false, error:'返回不是 JSON（' + r.status + '）'}; }
   if(json && json.blocked){
     try{
       log('⛔ 已阻止：' + (json.error || '目标实例不在前台'));
@@ -418,9 +434,13 @@ function INSTANCES_TARGET_LABEL(){
 const fmt = n => (n||0).toLocaleString('en-US');
 
 /* ---------------- 状态 ---------------- */
+let _refreshBusy = false;
 async function refresh(){
+  if(_refreshBusy) return;
+  if(document.hidden) return;
+  _refreshBusy = true;
   try{
-    const p = await api('/api/ping');
+    const p = await api('/api/ping', {_timeoutMs: 6000});
     const on = !!p.bridge;
     $('dot').className = 'dot' + (on ? ' on' : '');
     $('bridgeText').textContent = on ? '已连接 Mechanical' : '未连接 Mechanical';
@@ -428,10 +448,19 @@ async function refresh(){
       $('summary').textContent = '桥接未连接。请在 Mechanical 的 Scripting 面板运行：execfile("D:/ai/meshkit/app/bridge_agent.py")';
       return;
     }
-    const st = await api('/api/status');
+    const st = await api('/api/status', {_timeoutMs: 12000});
+    if(st && st.busy){
+      $('bridgeText').textContent = 'Mechanical 忙：' + (st.step || '');
+      return;
+    }
+    if(st && st.timeout){
+      $('bridgeText').textContent = 'Mechanical 忙（状态读取超时）';
+      return;
+    }
     LAST_STATUS = st;
     renderStatus(st);
   }catch(e){ log('状态读取失败：' + e); }
+  finally{ _refreshBusy = false; }
 }
 
 function renderStatus(st){
@@ -800,11 +829,16 @@ let AGENTS = [], AGENT_TARGET = null;
 let INSTANCES = [];
 let PICKED_PID = null;      // 用户手动选中的实例，轮询时保持不变
 
+let _agentBusy = false;
 async function loadAgents(){
   const sel = $('agentSel');
   if(!sel) return;
+  if(_agentBusy) return;
+  if(document.hidden) return;
+  _agentBusy = true;
   try{
-    const r = await api('/api/instances');
+    const r = await api('/api/instances', {_timeoutMs: 10000});
+    if(r && r.timeout) return;
     if(!r.ok) return;
     INSTANCES = r.instances || [];
     if(!INSTANCES.length){
@@ -864,6 +898,7 @@ async function loadAgents(){
     const btn = $('btnConnect');
     if(btn) btn.textContent = cur && cur.connected ? '切换' : '连接';
   }catch(e){ /* 忽略 */ }
+  finally{ _agentBusy = false; }
 }
 
 async function connectSelected(){
@@ -1897,13 +1932,21 @@ async function clearAll(){
   setBusy(false);
 }
 
+let _catBusy = false;
 async function loadCategories(){
+  if(_catBusy) return;   // 不叠加
   /*
    * 拿到类别后核对：数据来自哪个实例？与当前目标不一致就告警，
    * 避免"操作 2000c4 却看到测试版的列表"。
    */
   try{
     const r = await api('/api/categories');
+    if(r && r.loading){
+      $('catHint').innerHTML = '<span style="color:#ffd48a">正在读取类别（Mechanical 较慢）…</span>';
+      _catBusy = false;
+      setTimeout(loadCategories, 2500);
+      return;
+    }
     if(!r.ok){
       $('catHint').innerHTML = '<span style="color:#ffb4b4">' + (r.error||'读取失败') + '</span>';
       if(CFG && CFG.sizes) renderCategories(
@@ -1933,6 +1976,7 @@ async function loadCategories(){
     loadFavorites();
     log(`类别扫描完成：${LAST_CATS.length} 类 / ${r.total_bodies} 体`);
   }catch(e){ log('类别读取异常：'+e); }
+  finally{ _catBusy = false; }
 }
 function readSettingsFromUI(){
   return {
@@ -2237,9 +2281,9 @@ $('btnSaveLLM').onclick = async () => {
   loadAgents();
   loadExperience();
   log('MeshKit AI 已就绪。');
-  setInterval(refresh, 15000);
+  setInterval(refresh, 20000);
   setInterval(loadProject, 30000);
-  setInterval(loadAgents, 5000);
+  setInterval(loadAgents, 10000);
   setInterval(loadExperience, 30000);
   // 错误日志只在生成网格后扫描一次，不做定时轮询
   // 失败体只在生成网格 / 手动刷新时读取，不做定时轮询

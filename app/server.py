@@ -1464,6 +1464,112 @@ def ensure_target_front(strict=True):
                      % (after if after else "其它窗口")}
 
 
+_CACHE = {}
+_CACHE_BUSY = {}
+
+
+def cache_get(key, ttl, producer, block=False):
+    """缓存读取；过期则后台刷新，先返回旧值；没有旧值时返回 loading"""
+    now = time.time()
+    hit = _CACHE.get(key)
+
+    def _tag(data, refreshing=False):
+        if isinstance(data, dict):
+            data = dict(data)
+            if hit:
+                data["cached"] = True
+                data["cache_age"] = round(now - hit[0], 1)
+            if refreshing:
+                data["refreshing"] = True
+        return data
+
+    if hit and now - hit[0] < ttl:
+        return _tag(hit[1])
+
+    def _spawn():
+        _CACHE_BUSY[key] = True
+
+        def _bg():
+            try:
+                val = producer()
+                if isinstance(val, dict) and val.get("ok"):
+                    _CACHE[key] = (time.time(), val)
+            except Exception:
+                pass
+            finally:
+                _CACHE_BUSY[key] = False
+
+        try:
+            import threading
+            threading.Thread(target=_bg, daemon=True).start()
+        except Exception:
+            _CACHE_BUSY[key] = False
+
+    if hit:
+        if not _CACHE_BUSY.get(key):
+            _spawn()
+        return _tag(hit[1], refreshing=True)
+
+    if not block:
+        if not _CACHE_BUSY.get(key):
+            _spawn()
+        return {"ok": False, "loading": True,
+                "error": "首次读取中（Mechanical 较慢），几秒后自动刷新"}
+
+    val = producer()
+    if isinstance(val, dict) and val.get("ok"):
+        _CACHE[key] = (time.time(), val)
+    return val
+
+
+def cache_invalidate(prefix=""):
+    for k in list(_CACHE.keys()):
+        if not prefix or str(k).startswith(str(prefix)):
+            _CACHE.pop(k, None)
+
+
+def _warm_cache():
+    """后台预热：连上就先把重的数据算好"""
+    try:
+        _tp = target_pid()
+        if not _tp:
+            return
+        for key, ttl, fn in (
+            (("status", _tp), 30, lambda: call_bridge("status", timeout=180)),
+            (("categories", _tp), 60,
+             lambda: categories_from_recognition(fast=True)),
+            (("body_counts", _tp), 90, lambda: call_bridge("body_counts", timeout=180)),
+        ):
+            try:
+                if key not in _CACHE:
+                    val = fn()
+                    if isinstance(val, dict) and val.get("ok"):
+                        _CACHE[key] = (time.time(), val)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def _mech_busy():
+    """Mechanical 是否正在执行长任务（网格/分组等）"""
+    try:
+        d = _read_json(PROGRESS_PATH) or {}
+        step = (d.get("step") or "").strip()
+        ts = d.get("ts") or ""
+        if step and step not in ("已结束", "结束", "完成", "idle"):
+            try:
+                import datetime as _dt
+                t0 = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+                if (time.time() - t0.timestamp()) < 1800:
+                    return step
+            except Exception:
+                return step
+    except Exception:
+        pass
+    return ""
+
+
 def _mech_auto_connect(pid):
     """安全版：只激活/最大化/开面板/Ctrl+F5，不盲粘贴"""
     import ctypes
@@ -2150,7 +2256,7 @@ def debug_thin_detail(cat):
             "exp_ok": _exp is not None, "exp_err": _exp_err, "bodies": out}
 
 
-def categories_from_recognition():
+def categories_from_recognition(fast=False):
     """类别 = 几何识别出的分组（与扫描结果一致）"""
     sys.path.insert(0, APP_DIR)
     import geo_recognize
@@ -2203,7 +2309,7 @@ def categories_from_recognition():
 
     ctrl_info = {}
     try:
-        sc = call_bridge("scan_categories", timeout=120)
+        sc = {} if fast else call_bridge("scan_categories", timeout=120)
         for c in (sc.get("categories") or []):
             n = c.get("name")
             if n and n != "未覆盖":
@@ -3132,10 +3238,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(project_file(force=self.path.endswith("?force=1")))
 
             if path == "/api/status":
+
+                _busy = _mech_busy()
+                if _busy:
+                    return self._json({"ok": False, "busy": True,
+                                       "step": _busy,
+                                       "error": "Mechanical 正在忙：%s，稍后自动重试" % _busy})
                 if not bridge_alive():
                     return self._json({"ok": False, "bridge_offline": True,
                                        "error": "桥接代理未运行。请在 Mechanical 里运行 bridge_agent.py"})
-                _st = call_bridge("status")
+                _tp_s = target_pid()
+                _st = cache_get(("status", _tp_s), 30,
+                                lambda: call_bridge("status", timeout=180))
                 try:
                     _remember_failed(_st)      # status_remember
                 except Exception:
@@ -3143,12 +3257,22 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(_st)
 
             if path == "/api/categories":
+
+                _busy = _mech_busy()
+                if _busy:
+                    return self._json({"ok": False, "busy": True,
+                                       "step": _busy,
+                                       "error": "Mechanical 正在忙：%s，稍后自动重试" % _busy})
                 if not bridge_alive():
                     return self._json({"ok": False, "bridge_offline": True,
                                        "error": "桥接代理未运行（bridge_agent.py）"})
                 
-                # ⓿ 优先用几何识别结果（与扫描分组一致）
-                _rec = categories_from_recognition()
+                # ⓿ 优先用几何识别结果（与扫描分组一致）—— 60 秒缓存
+                _tp_c = target_pid()
+                _rec = cache_get(("categories", _tp_c), 60,
+                                 lambda: categories_from_recognition(fast=True))
+                if _rec.get("loading"):
+                    return self._json(_rec)
                 if _rec.get("ok"):
                     try:
                         _tp0 = target_pid()
@@ -3198,7 +3322,7 @@ class Handler(BaseHTTPRequestHandler):
                                       "source": "geometry"})
                     # 合并 Mesh 里的控制项类别（Geometry 分组丢失时也能读全）
                     try:
-                        _sc = call_bridge("scan_categories", timeout=90)
+                        _sc = {} if fast else call_bridge("scan_categories", timeout=90)
                         _have = set(c["name"] for c in _cats)
                         for _c in (_sc.get("categories") or []):
                             _n2 = _c.get("name")
@@ -3434,9 +3558,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(res)
 
             if path == "/api/body_counts":
+
+                _busy = _mech_busy()
+                if _busy:
+                    return self._json({"ok": False, "busy": True,
+                                       "step": _busy,
+                                       "error": "Mechanical 正在忙：%s，稍后自动重试" % _busy})
                 if not bridge_alive():
                     return self._json({"ok": False, "error": "桥接代理未运行"})
-                return self._json(call_bridge("body_counts", timeout=120))
+                _tp_b = target_pid()
+                return self._json(cache_get(("body_counts", _tp_b), 90,
+                                            lambda: call_bridge("body_counts",
+                                                                timeout=180)))
 
             if path == "/api/diagnose":
                 if not bridge_alive():
@@ -4309,6 +4442,10 @@ tr:hover td{background:#141a22}
                             out["retried"] = True
             
                 # 4) 自动保存（防崩溃丢结果）
+                try:
+                    cache_invalidate()
+                except Exception:
+                    pass
                 out["saved"] = safe_save("scan_apply")
                 return self._json(out)
 
@@ -4427,6 +4564,11 @@ tr:hover td{background:#141a22}
                         pass
                 if _ran_on and isinstance(res, dict):
                     res["ran_on"] = _ran_on
+                try:
+                    if op in MUTATING_OPS or op in ("mesh", "apply", "fix_failed"):
+                        cache_invalidate()
+                except Exception:
+                    pass
                 return self._json(res)
 
             if path == "/api/kb/capture":
@@ -4610,6 +4752,21 @@ def main():
         httpd.serve_forever()
     except KeyboardInterrupt:
         print("\n已停止")
+
+
+def _boot_warm():
+    time.sleep(5)
+    try:
+        _warm_cache()
+    except Exception:
+        pass
+
+
+try:
+    import threading as _bt
+    _bt.Thread(target=_boot_warm, daemon=True).start()
+except Exception:
+    pass
 
 
 if __name__ == "__main__":
