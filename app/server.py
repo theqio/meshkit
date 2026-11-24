@@ -1695,6 +1695,120 @@ def premesh_check():
         return {"ok": False, "error": str(e)[:160]}
 
 
+def _ctrl_validation_fallback():
+    """用 read_plan + 全局设置做校验（代理未重载时的兜底）"""
+    try:
+        rp = call_bridge("read_plan", timeout=120)
+    except Exception:
+        return {"ok": False, "error": "read_plan 失败"}
+    if not rp.get("ok"):
+        return rp
+    cfg = load_config()
+    st = cfg.get("settings") or {}
+    g_min = float(st.get("MinimumSize") or 0)
+    g_def = float(st.get("DefeatureTolerance") or 0)
+    g_size = float(st.get("ElementSize") or 0)
+    controls, fatal, warn = [], [], []
+    for c in (rp.get("controls") or []):
+        nm = (c.get("name") or "").strip()
+        if not nm:
+            continue
+        kind = "sizing" if ("Sizing" in (c.get("category") or "")
+                            or nm.startswith("SIZE_")) else "method"
+        item = {"name": nm, "kind": kind, "bodies": c.get("count") or 0,
+                "size_mm": c.get("size_mm"), "method": c.get("method"),
+                "fatal": [], "warn": []}
+        if not item["bodies"]:
+            item["fatal"].append("作用域为空（控制项没有指定任何体）")
+        if kind == "sizing":
+            sz = item["size_mm"] or 0
+            if not sz:
+                item["fatal"].append("未设置尺寸（ElementSize 为空）")
+            else:
+                if g_min and sz < g_min:
+                    item["warn"].append("尺寸 %.2f 小于全局最小尺寸 %.2f" % (sz, g_min))
+                if g_def and sz < g_def:
+                    item["warn"].append("尺寸 %.2f 小于去特征尺寸 %.2f" % (sz, g_def))
+                if g_size and sz > g_size * 2.5:
+                    item["warn"].append("尺寸 %.2f 明显大于全局 %.2f" % (sz, g_size))
+        else:
+            if not item["method"]:
+                item["fatal"].append("方法类型未设置")
+        item["problems"] = item["fatal"] + item["warn"]
+        if item["fatal"]:
+            fatal.append({"name": nm, "problems": item["fatal"]})
+        elif item["warn"]:
+            warn.append({"name": nm, "problems": item["warn"]})
+        controls.append(item)
+    return {"ok": True, "controls": controls, "fatal": fatal, "warn": warn,
+            "settings": {"ElementSize": g_size, "MinimumSize": g_min,
+                         "DefeatureTolerance": g_def},
+            "source": "fallback"}
+
+
+def _ctrl_validation():
+    """调用代理校验已有控制项（缓存 30 秒）；代理不支持时用 read_plan 兜底"""
+    tp = target_pid()
+    cached = cache_get(("ctrlval", tp), 30,
+                       lambda: call_bridge("validate_controls", timeout=120),
+                       block=False)
+    if isinstance(cached, dict) and cached.get("ok"):
+        return cached
+    # 代理还没有 validate_controls（未重载）→ 兜底
+    try:
+        return cache_get(("ctrlval_fb", tp), 30, _ctrl_validation_fallback)
+    except Exception:
+        return {"ok": False, "error": "控制项校验不可用"}
+
+
+def _strip_ctrl_prefix(name):
+    for pre in ("SIZE_FIX_", "SIZE_", "METHOD_", "SWEEP_", "SHELL_"):
+        if name.startswith(pre):
+            return name[len(pre):]
+    return name
+
+
+def _lights_from_controls(cats):
+    """用控制项校验结果覆盖类别灯色；返回是否成功"""
+    try:
+        val = _ctrl_validation()
+    except Exception:
+        return False
+    if not isinstance(val, dict) or not val.get("ok"):
+        return False
+    fatal, warn = {}, {}
+    for item in (val.get("controls") or []):
+        cat = _strip_ctrl_prefix(item.get("name") or "")
+        if not cat:
+            continue
+        if item.get("fatal"):
+            fatal.setdefault(cat, []).extend(item["fatal"])
+        elif item.get("warn"):
+            warn.setdefault(cat, []).extend(item["warn"])
+    have = set()
+    for item in (val.get("controls") or []):
+        have.add(_strip_ctrl_prefix(item.get("name") or ""))
+
+    for c in (cats or []):
+        name = c.get("name")
+        if c.get("is_all_suppressed"):
+            c["light"], c["light_reason"] = "muted", "全部已抑制（不参与网格）"
+            continue
+        if name in fatal:
+            c["light"] = "red"
+            c["light_reason"] = "控制项问题：" + "；".join(fatal[name][:3])
+        elif name in warn:
+            c["light"] = "yellow"
+            c["light_reason"] = "控制项告警：" + "；".join(warn[name][:3])
+        elif name in have:
+            c["light"] = "green"
+            c["light_reason"] = "控制项正常"
+        else:
+            c["light"] = "red"
+            c["light_reason"] = "Mesh 里没有该类别控制项（点「应用设置与尺寸」生成）"
+    return True
+
+
 def _mech_busy():
     """Mechanical 是否在跑长任务
        只看真正耗时的步骤（网格/修复），不看内部读操作，避免把读接口挡掉
@@ -2590,6 +2704,15 @@ def categories_from_recognition(fast=False):
             "light": light, "light_reason": reason,
         })
     cats.sort(key=lambda c: -c["bodies"])
+    # 灯色以「Mesh 里已有控制项的真实校验」为准
+    try:
+        _ok_lights = _lights_from_controls(cats)
+    except Exception:
+        _ok_lights = False
+    if not _ok_lights:
+        for _c in cats:
+            if _c.get("light") != "muted":
+                _c["light_reason"] = "控制项状态读取中…"
     return {"ok": True, "categories": cats,
             "_ctrl_known": bool(ctrl_known),
             "ctrl_pending": (not ctrl_known),
@@ -3438,6 +3561,12 @@ class Handler(BaseHTTPRequestHandler):
                                  lambda: categories_from_recognition(fast=True))
                 if _rec.get("loading"):
                     return self._json(_rec)
+                # 灯色每次按「控制项校验」实时套用（校验结果自身有 30 秒缓存）
+                try:
+                    if _rec.get("categories"):
+                        _lights_from_controls(_rec["categories"])
+                except Exception:
+                    pass
                 if _rec.get("ok"):
                     try:
                         _tp0 = target_pid()
@@ -3806,6 +3935,9 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as _e:
                     _out["cached_err"] = str(_e)[:120]
                 return self._json(_out)
+
+            if path == "/api/controls_validate":
+                return self._json(_ctrl_validation())
 
             if path == "/api/premesh":
                 return self._json(premesh_check())

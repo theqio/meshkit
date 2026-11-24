@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.1"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.2"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -2792,6 +2792,129 @@ def op_set_methods_thin(payload):
     return {"ok": not bad, "done": ok_list, "failed": bad}
 
 
+def op_validate_controls(payload):
+    """逐个校验 Mesh 里已有的尺寸/方法控制项
+       返回每个控制项：类别、体数、尺寸、方法、状态、问题列表（fatal/warn）
+    """
+    out = {"ok": True, "controls": [], "fatal": [], "warn": [],
+           "settings": {}, "errors": []}
+    mesh = _mesh()
+
+    def mm(obj, name, default=0.0):
+        try:
+            return _mm_value(_safe(obj, name, 0))
+        except Exception:
+            return default
+
+    g_min = mm(mesh, "MinimumSize")
+    g_def = mm(mesh, "DefeatureTolerance")
+    g_size = mm(mesh, "ElementSize")
+    out["settings"] = {"ElementSize": g_size, "MinimumSize": g_min,
+                       "DefeatureTolerance": g_def}
+
+    ok_states = (u"FullyDefined", u"Solved", u"UpToDate", u"NotSolved", u"")
+
+    for c in list(mesh.Children or []):
+        nm = _txt(_safe(c, "Name", u""))
+        cat = _txt(_safe(c, "DataModelObjectCategory", u"")) or u""
+        low = cat.lower()
+        is_sizing = (u"sizing" in low) or nm.startswith(u"SIZE_")
+        is_method = (u"method" in low) or nm.startswith(u"METHOD_")
+        if not (is_sizing or is_method):
+            continue
+        item = {"name": nm, "category": cat,
+                "kind": ("sizing" if is_sizing else "method"),
+                "bodies": 0, "size_mm": None, "method": None,
+                "state": u"", "problems": [], "fatal": [], "warn": []}
+        try:
+            ids = [int(x) for x in (_safe(_safe(c, "Location"), "Ids") or [])]
+            item["bodies"] = len(ids)
+        except Exception:
+            ids = []
+            item["bodies"] = 0
+        if not ids:
+            item["fatal"].append(u"作用域为空（控制项没有指定任何体）")
+
+        if is_sizing:
+            sz = mm(c, "ElementSize")
+            item["size_mm"] = round(sz, 2) if sz > 0 else None
+            if sz <= 0:
+                item["fatal"].append(u"未设置尺寸（ElementSize 为空）")
+            else:
+                if g_min > 0 and sz < g_min:
+                    item["warn"].append(
+                        u"尺寸 %.2f 小于全局最小尺寸 %.2f（会被顶住）" % (sz, g_min))
+                if g_def > 0 and sz < g_def:
+                    item["warn"].append(
+                        u"尺寸 %.2f 小于去特征尺寸 %.2f（细碎特征会被吃掉）" % (sz, g_def))
+                if g_size > 0 and sz > g_size * 2.5:
+                    item["warn"].append(
+                        u"尺寸 %.2f 明显大于全局 %.2f（网格会很粗）" % (sz, g_size))
+            try:
+                beh = _txt(_safe(c, "Behavior", u""))
+                if not beh:
+                    item["warn"].append(u"Behavior 为空")
+            except Exception:
+                pass
+
+        if is_method:
+            mth = u""
+            try:
+                mth = _txt(_safe(c, "Method", u""))
+            except Exception:
+                mth = u""
+            item["method"] = mth or None
+            if not mth:
+                item["fatal"].append(u"方法类型未设置")
+            else:
+                ml = mth.lower()
+                if "sweep" in ml:
+                    # 扫掠需要源/目标面或可扫掠拓扑
+                    try:
+                        has_src = bool(_safe(_safe(c, "SweepNumberDivisions"), None) is not None)
+                    except Exception:
+                        has_src = True
+                    try:
+                        nm_div = int(_mm_value(_safe(c, "SweepNumberDivisions", 0)) or 0)
+                    except Exception:
+                        nm_div = 0
+                    if nm_div < 1:
+                        item["warn"].append(u"扫掠分割数未设置")
+                if "hex" in ml or "multizone" in ml:
+                    pass
+            try:
+                _eo = _txt(_safe(c, "ElementOrder", u""))
+            except Exception:
+                _eo = u""
+
+        st = u""
+        for key in ("ObjectState", "State"):
+            try:
+                st = _txt(_safe(c, key, u""))
+                if st:
+                    break
+            except Exception:
+                continue
+        item["state"] = st
+        if st and st not in ok_states:
+            item["fatal"].append(u"控制项状态异常：%s" % st)
+
+        item["problems"] = item["fatal"] + item["warn"]
+        if item["fatal"]:
+            out["fatal"].append({"name": nm, "problems": item["fatal"]})
+        elif item["warn"]:
+            out["warn"].append({"name": nm, "problems": item["warn"]})
+        out["controls"].append(item)
+
+    # 网格对象本身的状态
+    try:
+        out["mesh_state"] = [_txt(_safe(mesh, "ObjectState", u"")),
+                             _txt(_safe(mesh, "State", u""))]
+    except Exception:
+        out["mesh_state"] = []
+    return out
+
+
 def op_pre_mesh_check(payload):
     """网格化前检查；payload={"fix": true} 表示自动修正可修项"""
     do_fix = bool((payload or {}).get("fix", True))
@@ -5452,6 +5575,7 @@ OPS = {
     "set_string_value": op_set_string_value,
     "set_by_label": op_set_by_label,
     "pre_mesh_check": op_pre_mesh_check,
+    "validate_controls": op_validate_controls,
     "cat_params_v2": op_cat_params_v2,
     "body_counts": op_body_counts,
     "dir_body": op_dir_body,
