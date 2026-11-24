@@ -1551,24 +1551,102 @@ def _warm_cache():
         pass
 
 
+_CTRL_CACHE = {}
+_CTRL_BUSY = {}
+
+
+def ctrl_names_cached(pid=None, ttl=300, wait=False):
+    """Mesh 控制项名字缓存；wait=True 时同步读一次（约 0.8 秒）"""
+    pid = pid or target_pid()
+    now = time.time()
+    hit = _CTRL_CACHE.get(pid)
+    if hit and now - hit[0] < ttl:
+        return set(hit[1]), round(now - hit[0], 1)
+
+    if wait:
+        try:
+            rp = call_bridge("read_plan", timeout=120)
+            names = []
+            for c in (rp.get("controls") or []):
+                nm = (c.get("name") or "").strip()
+                if not nm:
+                    continue
+                for pre in ("SIZE_FIX_", "SIZE_", "METHOD_", "SWEEP_", "SHELL_"):
+                    if nm.startswith(pre):
+                        nm = nm[len(pre):]
+                        break
+                names.append(nm)
+            if names:
+                _CTRL_CACHE[pid] = (time.time(), names)
+                _CTRL_BUSY[pid] = False
+                return set(names), 0.0
+        except Exception:
+            pass
+
+    def _spawn():
+        _CTRL_BUSY[pid] = True
+
+        def _bg():
+            try:
+                rp = call_bridge("read_plan", timeout=120)
+                names = []
+                for c in (rp.get("controls") or []):
+                    nm = (c.get("name") or "").strip()
+                    if not nm:
+                        continue
+                    for pre in ("SIZE_FIX_", "SIZE_", "METHOD_", "SWEEP_", "SHELL_"):
+                        if nm.startswith(pre):
+                            nm = nm[len(pre):]
+                            break
+                    names.append(nm)
+                if names:
+                    _CTRL_CACHE[pid] = (time.time(), names)
+            except Exception:
+                pass
+            finally:
+                _CTRL_BUSY[pid] = False
+
+        try:
+            import threading
+            threading.Thread(target=_bg, daemon=True).start()
+        except Exception:
+            _CTRL_BUSY[pid] = False
+
+    if hit:
+        if not _CTRL_BUSY.get(pid):
+            _spawn()
+        return set(hit[1]), round(now - hit[0], 1)
+
+    if not _CTRL_BUSY.get(pid):
+        _spawn()
+    return None, None
+
+
 def _mech_busy():
-    """Mechanical 是否正在执行长任务（网格/分组等）"""
+    """Mechanical 是否在跑长任务
+       只看真正耗时的步骤（网格/修复），不看内部读操作，避免把读接口挡掉
+    """
     try:
         d = _read_json(PROGRESS_PATH) or {}
         step = (d.get("step") or "").strip()
+        op = (d.get("op") or "").strip().lower()
         ts = d.get("ts") or ""
-        if step and step not in ("已结束", "结束", "完成", "idle"):
-            try:
-                import datetime as _dt
-                t0 = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                if (time.time() - t0.timestamp()) < 1800:
-                    return step
-            except Exception:
+        long_ops = ("mesh", "fix_failed", "group_geometry", "rename_bodies",
+                    "ungroup_folders", "controls_from_plan", "apply")
+        if op not in long_ops:
+            return ""
+        if not step or step in ("已结束", "结束", "完成", "开始", "idle"):
+            return ""
+        try:
+            import datetime as _dt
+            t0 = _dt.datetime.strptime(ts, "%Y-%m-%d %H:%M:%S")
+            if (time.time() - t0.timestamp()) < 1800:
                 return step
+        except Exception:
+            return step
     except Exception:
         pass
     return ""
-
 
 def _mech_auto_connect(pid):
     """安全版：只激活/最大化/开面板/Ctrl+F5，不盲粘贴"""
@@ -2308,15 +2386,25 @@ def categories_from_recognition(fast=False):
     minsize = setts.get("MinimumSize") or 10
 
     ctrl_info = {}
+    ctrl_known = True
     try:
-        sc = {} if fast else call_bridge("scan_categories", timeout=120)
-        for c in (sc.get("categories") or []):
-            n = c.get("name")
-            if n and n != "未覆盖":
-                ctrl_info[n] = {"size": c.get("size_mm"),
-                                "method": c.get("method")}
+        if fast:
+            _cn, _cage = ctrl_names_cached(wait=True)
+            if _cn is None:
+                ctrl_known = False          # 还在后台读，先不判灯
+                _cn = set()
+            for _n in _cn:
+                if _n and _n != "未覆盖":
+                    ctrl_info.setdefault(_n, {})
+        else:
+            sc = call_bridge("scan_categories", timeout=120)
+            for c in (sc.get("categories") or []):
+                n = c.get("name")
+                if n and n != "未覆盖":
+                    ctrl_info[n] = {"size": c.get("size_mm"),
+                                    "method": c.get("method")}
     except Exception:
-        pass
+        ctrl_known = False
     ctrl_names = set(ctrl_info.keys())
 
     bmap = {b.get("name"): b for b in bodies}
@@ -2393,6 +2481,8 @@ def categories_from_recognition(fast=False):
 
         if sup and sup >= len(names) and names:
             light, reason = "muted", "全部已抑制（不参与网格）"
+        elif not ctrl_known:
+            light, reason = "muted", "控制项清单读取中（后台刷新，稍后自动更新）"
         elif g not in ctrl_names:
             light, reason = "red", "Mesh 里没有该类别控制项（点「应用设置与尺寸」生成）"
         else:
@@ -3623,6 +3713,24 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:
                     _cat = ""
                 return self._json(debug_thin_detail(_cat))
+
+            if path == "/api/debug/ctrl":
+                _out = {"cache": {str(k): (v[0], len(v[1])) for k, v in _CTRL_CACHE.items()},
+                        "busy": dict(_CTRL_BUSY)}
+                try:
+                    _rp = call_bridge("read_plan", timeout=120)
+                    _out["plan_ok"] = _rp.get("ok")
+                    _out["plan_n"] = len(_rp.get("controls") or [])
+                    _out["plan_err"] = (_rp.get("error") or "")[:120]
+                except Exception as _e:
+                    _out["plan_err"] = str(_e)[:120]
+                try:
+                    _cn, _age = ctrl_names_cached()
+                    _out["cached_n"] = None if _cn is None else len(_cn)
+                    _out["cached_age"] = _age
+                except Exception as _e:
+                    _out["cached_err"] = str(_e)[:120]
+                return self._json(_out)
 
             if path == "/api/model_key":
                 try:
