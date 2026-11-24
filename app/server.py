@@ -2276,11 +2276,14 @@ def categories_from_recognition():
         _ratio = (float(_plate) / len(names)) if names else 0.0
         # 薄板体占多数（≥60%）时以几何为准，不被残留的 thin_off 抑制
         _auto = auto_thin and (g not in _thin_off or _ratio >= 0.6)
-        method = ci.get("method") or md.get(g) or (
-            "Sweep" if (g in thin or g in sw or _auto) else "Automatic")
-        # 薄板类别一律用扫掠（标签与方法保持一致）
-        if (g in thin) or _auto:
+        # 规则只有两条：标了薄板 = 扫掠；没标 = 自动
+        _is_thin_now = (g in thin) or _auto
+        if _is_thin_now:
             method = "Sweep"
+        else:
+            method = md.get(g) or "Automatic"
+            if method == "Sweep" and g not in sw and g not in thin:
+                method = "Automatic"
 
         if sup and sup >= len(names) and names:
             light, reason = "muted", "全部已抑制（不参与网格）"
@@ -2308,9 +2311,6 @@ def categories_from_recognition():
             "method": method,
             "is_thin_cat": (g in thin) or _auto,
             "auto_thin": _auto,
-            "method_note": ("扫掠（手动标记扫掠可用）"
-                            if (method == "Sweep" and not ((g in thin) or _auto))
-                            else ""),
             "plate_bodies": _plate,
             "thin_ratio": (round(float(_plate) / len(names), 3) if names else 0),
             "thin_divisions": (2 if ((g in thin) or _auto) else None),

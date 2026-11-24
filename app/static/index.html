@@ -580,11 +580,8 @@ function renderCategories(cats, methodsAvailable){
           title="${(c.size_basis||'').replace(/"/g,'')}">${recVal || '—'}</td>
       <td><select class="method-sel" data-cat="${c.name}" ${disAttr}
           onchange="onMethodChange('${c.name}', this.value)"
-         title="${(c.method_note||'').replace(/"/g,'')}"
          style="background:var(--panel2);border:1px solid var(--line);color:var(--fg);
-                border-radius:6px;padding:4px 6px;font-size:12.5px">${sel}</select>${c.method_note
-          ? '<span class="badge" style="margin-left:4px;font-size:10.5px" title="' +
-            c.method_note.replace(/"/g,'') + '">手动</span>' : ''}</td>
+                border-radius:6px;padding:4px 6px;font-size:12.5px">${sel}</select></td>
       <td><button class="btn" style="padding:2px 7px;font-size:12px" ${disAttr}
           onclick="applyOne('${c.name}')" title="应用该类别到网格">应用</button></td>
       <td><button class="btn" style="padding:2px 7px;font-size:13px" ${disAttr}
