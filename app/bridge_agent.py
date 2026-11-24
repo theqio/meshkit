@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.2"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.3"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -4764,9 +4764,19 @@ def op_set_body_size(payload):
     if ctrl is not None:
         try:
             ctrl.ElementSize = Quantity(u"%.3f [mm]" % size)
-            return {"ok": True, "control": _txt(_safe(ctrl, "Name", u"")),
-                    "size_mm": size, "created": False,
-                    "value": _txt(_safe(ctrl, "ElementSize", u""))}
+            out = {"ok": True, "control": _txt(_safe(ctrl, "Name", u"")),
+                   "size_mm": size, "created": False,
+                   "value": _txt(_safe(ctrl, "ElementSize", u""))}
+            # 关键：从类别控制项里摘除，否则类别尺寸仍会覆盖该体
+            try:
+                _rm, _er = _exclude_body_from_categories(bid, body_name)
+                if _rm:
+                    out["excluded_from"] = _rm
+                if _er:
+                    out["exclude_errors"] = _er
+            except Exception as _e:
+                out["exclude_errors"] = [_txt(_e)[:60]]
+            return out
         except Exception:
             return {"ok": False, "error": _tail(traceback.format_exc(), 300)}
 
@@ -4774,9 +4784,21 @@ def op_set_body_size(payload):
                                   [bid], size)
     if ctrl is None:
         return {"ok": False, "error": err}
-    return {"ok": True, "control": _txt(_safe(ctrl, "Name", u"")),
-            "size_mm": size, "created": True,
-            "value": _txt(_safe(ctrl, "ElementSize", u""))}
+    _out2 = {"excluded_from": []}
+    try:
+        _rm2, _er2 = _exclude_body_from_categories(bid, body_name)
+        if _rm2:
+            _out2["excluded_from"] = _rm2
+        if _er2:
+            _out2["exclude_errors"] = _er2
+    except Exception as _e:
+        _out2["exclude_errors"] = [_txt(_e)[:60]]
+    _out2.update({"ok": True,
+                  "control": _txt(_safe(ctrl, "Name", u"")),
+                  "size_mm": size,
+                  "created": True,
+                  "value": _txt(_safe(ctrl, "ElementSize", u""))})
+    return _out2
 
 
 def op_set_bodies_size(payload):
