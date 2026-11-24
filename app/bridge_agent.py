@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.3"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.4"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -2879,7 +2879,7 @@ def op_validate_controls(payload):
                     except Exception:
                         nm_div = 0
                     if nm_div < 1:
-                        item["warn"].append(u"扫掠分割数未设置")
+                        item["warn"].append(u"扫掠层数未设置（穿过厚度方向的分段数=空）；薄板建议 2 层，点「应用设置与尺寸」会自动写入")
                 if "hex" in ml or "multizone" in ml:
                     pass
             try:
