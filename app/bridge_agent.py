@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.6"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.10"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -2944,6 +2944,12 @@ def op_validate_controls(payload):
                     break
             except Exception:
                 continue
+        # 记录扫掠层数，便于确认薄板是否真的写了 2 层
+        try:
+            if is_method:
+                item["divisions"] = int(_mm_value(_safe(c, "SweepNumberDivisions", 0)) or 0)
+        except Exception:
+            item["divisions"] = None
         item["state"] = st
         if st and st not in ok_states:
             item["fatal"].append(u"控制项状态异常：%s" % st)
@@ -4263,6 +4269,7 @@ def op_geom_groups(payload):
 
     out["total"] = len(allb)
     out["ungrouped"] = [n for n in allb if n not in grouped]
+    _cache_put(_CACHE_GROUPS, out)
     return out
 
 
@@ -4327,6 +4334,7 @@ def op_ungroup_folders(payload):
             done.append(nm)
         else:
             failed.append(u"%s: %s" % (nm, err[:80]))
+    _cache_bust()
     return {"ok": not failed, "done": done, "failed": failed,
             "count": len(done), "found": len(found)}
 
@@ -4493,6 +4501,7 @@ def op_group_geometry(payload):
         moved += ok_n
         made.append(u"%s(%d/%d)" % (gname, ok_n, len(bodies)))
 
+    _cache_bust()
     return {"ok": not failed, "groups": made, "failed": failed,
             "moved": moved, "skipped": skipped}
 
@@ -4576,11 +4585,43 @@ def op_rename_bodies(payload):
             renamed.append({"old": old, "new": new})
         except Exception as e:
             failed.append(u"%s: %s" % (old, _txt(e)[:80]))
+    _cache_bust()
     return {"ok": not failed, "renamed": renamed, "failed": failed,
             "skipped": skipped, "count": len(renamed)}
 
 
+# ---------------------------------------------------------------- 读缓存
+_CACHE_BODIES = {"t": 0.0, "v": None}
+_CACHE_GROUPS = {"t": 0.0, "v": None}
+CACHE_TTL = 15.0
+
+
+def _cache_bust():
+    _CACHE_BODIES["t"] = 0.0
+    _CACHE_BODIES["v"] = None
+    _CACHE_GROUPS["t"] = 0.0
+    _CACHE_GROUPS["v"] = None
+
+
+def _cache_get(slot):
+    try:
+        if slot["v"] is not None and (time.time() - slot["t"]) < CACHE_TTL:
+            return slot["v"]
+    except Exception:
+        pass
+    return None
+
+
+def _cache_put(slot, val):
+    slot["t"] = time.time()
+    slot["v"] = val
+
+
 def op_list_bodies(payload):
+
+    _cv = _cache_get(_CACHE_BODIES)
+    if _cv is not None:
+        return _cv
     """列出全部体的几何信息（含最终类别名，用于核对与建模记忆）"""
     factor = _len_factor()
 
@@ -4617,7 +4658,9 @@ def op_list_bodies(payload):
                     "vol": round(_vol_value(_safe(b, "Volume", 0)), 1),
                     "category": final_cat.get(name) or _category_of(name, u"未分类")})
     out.sort(key=lambda d: (d["category"], d["name"]))
-    return {"ok": True, "count": len(out), "bodies": out}
+    _res1 = {"ok": True, "count": len(out), "bodies": out}
+    _cache_put(_CACHE_BODIES, _res1)
+    return _res1
 
 
 def op_failed_detail(payload):
@@ -5893,4 +5936,9 @@ def start():
     return False
 
 
-start()
+# 只有当前没有任何定时器时才启动，避免重复调度器
+try:
+    if not globals().get("_keep"):
+        start()
+except Exception:
+    pass

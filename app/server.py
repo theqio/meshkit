@@ -2778,7 +2778,8 @@ def categories_from_recognition(fast=False):
     if not _ok_lights:
         for _c in cats:
             if _c.get("light") != "muted":
-                _c["light_reason"] = "控制项状态读取中…"
+                _c["light"] = "muted"
+                _c["light_reason"] = "控制项校验暂不可用（Mechanical 忙），稍后自动刷新"
     return {"ok": True, "categories": cats,
             "_ctrl_known": bool(ctrl_known),
             "ctrl_pending": (not ctrl_known),
@@ -3477,10 +3478,57 @@ def _call_bridge_impl(op: str, payload: dict | None = None, timeout: float | Non
 #  HTTP
 # ============================================================================
 
-def call_bridge(op, payload=None, timeout=None):
-    """串行化包装：同一时刻只允许一个请求进入 Mechanical（避免并发闪退）"""
-    with _BRIDGE_LOCK:
+READ_OPS = frozenset((
+    "ping", "status", "list_bodies", "geom_groups", "read_plan",
+    "scan_categories", "validate_controls", "body_counts", "failed_detail",
+    "mesh_messages", "diagnose", "quality_metrics", "get_params",
+    "probe_tree", "probe_geom_groups", "project_info", "probe_ctrl_scope",
+))
+
+
+_PID_LOCKS = {}
+_PID_LOCK_TS = {}
+
+
+def _pid_lock(pid):
+    """每个实例一把锁：一个实例卡住不影响另一个"""
+    pid = int(pid or 0)
+    lk = _PID_LOCKS.get(pid)
+    if lk is None:
+        lk = threading.RLock()
+        _PID_LOCKS[pid] = lk
+    return lk
+
+
+def reset_bridge_locks():
+    """强制丢弃所有按实例锁（卡死时用）"""
+    n = len(_PID_LOCKS)
+    _PID_LOCKS.clear()
+    _PID_LOCK_TS.clear()
+    return n
+
+
+def call_bridge(op, payload=None, timeout=None, wait=None):
+    """串行化包装（按实例）：读操作拿不到锁立刻返回 busy，写操作最多等 180 秒"""
+    pid = target_pid()
+    if pid is None:
+        return {"ok": False, "error": "没有在线的 Mechanical 实例"}
+    lk = _pid_lock(pid)
+    if wait is None:
+        wait = 2.0 if op in READ_OPS else 180.0
+    if not lk.acquire(timeout=wait):
+        held = round(time.time() - _PID_LOCK_TS.get(int(pid), time.time()), 1)
+        return {"ok": False, "busy": True,
+                "error": "该实例正在忙（上一个操作已占用 %.0f 秒），可稍候或点「解除卡住」" % max(held, 0)}
+    _PID_LOCK_TS[int(pid)] = time.time()
+    try:
         return _call_bridge_impl(op, payload, timeout)
+    finally:
+        try:
+            lk.release()
+        except Exception:
+            pass
+        _PID_LOCK_TS.pop(int(pid), None)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -4607,6 +4655,15 @@ tr:hover td{background:#141a22}
                     pass
                 return self._json(_r)
 
+            if path == "/api/bridge/reset":
+                _n = reset_bridge_locks()
+                try:
+                    cache_invalidate()
+                except Exception:
+                    pass
+                return self._json({"ok": True, "released": _n,
+                                   "message": "已重置桥接锁，可重新操作"})
+
             if path == "/api/agent/reload":
                 body = self._body()
                 try:
@@ -4908,6 +4965,11 @@ tr:hover td{background:#141a22}
                             _existing = set()
                             try:
                                 _rp = call_bridge("read_plan", timeout=120)
+                                if not _rp.get("ok"):
+                                    return self._json({
+                                        "ok": False, "busy": bool(_rp.get("busy")),
+                                        "error": "读不到现有控制项清单，已中止（避免建出重复/空控制项）：%s"
+                                                 % (_rp.get("error") or "")})
                                 for _c in (_rp.get("controls") or []):
                                     _nm = (_c.get("name") or "").strip()
                                     for _pre in ("SIZE_FIX_", "SIZE_",
