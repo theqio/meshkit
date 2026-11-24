@@ -1530,6 +1530,18 @@ def cache_invalidate(prefix=""):
             _CACHE.pop(k, None)
 
 
+def _warm_categories():
+    """同步重建类别缓存（改动标记后调用，保证页面下一次读到新结果）"""
+    try:
+        tp = target_pid()
+        val = categories_from_recognition(fast=True)
+        if isinstance(val, dict) and val.get("ok"):
+            _CACHE[("categories", tp)] = (time.time(), val)
+        return True
+    except Exception:
+        return False
+
+
 def _warm_cache():
     """后台预热：连上就先把重的数据算好"""
     try:
@@ -1563,12 +1575,12 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
     now = time.time()
     hit = _CTRL_CACHE.get(pid)
     if hit and now - hit[0] < ttl:
-        return set(hit[1]), round(now - hit[0], 1)
+        return list(hit[1]), round(now - hit[0], 1)
 
     if wait:
         try:
             rp = call_bridge("read_plan", timeout=120)
-            names = []
+            items = []
             for c in (rp.get("controls") or []):
                 nm = (c.get("name") or "").strip()
                 if not nm:
@@ -1577,11 +1589,14 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
                     if nm.startswith(pre):
                         nm = nm[len(pre):]
                         break
-                names.append(nm)
-            if names:
-                _CTRL_CACHE[pid] = (time.time(), names)
+                items.append({"name": nm,
+                              "size": c.get("size_mm"),
+                              "method": c.get("method"),
+                              "bodies": c.get("count")})
+            if items:
+                _CTRL_CACHE[pid] = (time.time(), items)
                 _CTRL_BUSY[pid] = False
-                return set(names), 0.0
+                return items, 0.0
         except Exception:
             pass
 
@@ -1591,7 +1606,7 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
         def _bg():
             try:
                 rp = call_bridge("read_plan", timeout=120)
-                names = []
+                items = []
                 for c in (rp.get("controls") or []):
                     nm = (c.get("name") or "").strip()
                     if not nm:
@@ -1600,9 +1615,12 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
                         if nm.startswith(pre):
                             nm = nm[len(pre):]
                             break
-                    names.append(nm)
-                if names:
-                    _CTRL_CACHE[pid] = (time.time(), names)
+                    items.append({"name": nm,
+                                  "size": c.get("size_mm"),
+                                  "method": c.get("method"),
+                                  "bodies": c.get("count")})
+                if items:
+                    _CTRL_CACHE[pid] = (time.time(), items)
             except Exception:
                 pass
             finally:
@@ -1617,7 +1635,7 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
     if hit:
         if not _CTRL_BUSY.get(pid):
             _spawn()
-        return set(hit[1]), round(now - hit[0], 1)
+        return list(hit[1]), round(now - hit[0], 1)
 
     if not _CTRL_BUSY.get(pid):
         _spawn()
@@ -1807,6 +1825,46 @@ def _lights_from_controls(cats):
             c["light"] = "red"
             c["light_reason"] = "Mesh 里没有该类别控制项（点「应用设置与尺寸」生成）"
     return True
+
+
+def _flags_path(key=None):
+    return os.path.join(APP_DIR, "model_flags__%s.json" % (key or _model_key()))
+
+
+def _flags_load():
+    """按模型读标记：thin_cats/thin_off/hole_cats/locked_cats/sweep_ok"""
+    try:
+        p = _flags_path()
+        if os.path.isfile(p):
+            with open(p, encoding="utf-8") as f:
+                d = json.load(f) or {}
+            return d, True
+    except Exception:
+        pass
+    return {}, False
+
+
+def _flags_save(d):
+    try:
+        with open(_flags_path(), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=1)
+        return True
+    except Exception:
+        return False
+
+
+def _flags_get(cfg, key):
+    """优先按模型；没有记录时回退全局配置"""
+    d, ok = _flags_load()
+    if ok and key in d:
+        return list(d.get(key) or [])
+    return list(cfg.get(key) or [])
+
+
+def _flags_set(key, value):
+    d, _ = _flags_load()
+    d[key] = list(value or [])
+    return _flags_save(d)
 
 
 def _mech_busy():
@@ -2564,11 +2622,11 @@ def categories_from_recognition(fast=False):
     def _only_current(lst):
         return [x for x in (lst or []) if x in _cur_names]
 
-    thin = _only_current(cfg.get("thin_cats") or [])
-    hole = _only_current(cfg.get("hole_cats") or [])
-    lock = _only_current(cfg.get("locked_cats") or [])
-    sw = _only_current(cfg.get("sweep_ok") or [])
-    _thin_off = _only_current(cfg.get("thin_off") or [])
+    thin = _only_current(_flags_get(cfg, "thin_cats"))
+    hole = _only_current(_flags_get(cfg, "hole_cats"))
+    lock = _only_current(_flags_get(cfg, "locked_cats"))
+    sw = _only_current(_flags_get(cfg, "sweep_ok"))
+    _thin_off = _only_current(_flags_get(cfg, "thin_off"))
     setts = cfg.get("settings") or {}
     minsize = setts.get("MinimumSize") or 10
 
@@ -2579,10 +2637,15 @@ def categories_from_recognition(fast=False):
             _cn, _cage = ctrl_names_cached(wait=True)
             if _cn is None:
                 ctrl_known = False          # 还在后台读，先不判灯
-                _cn = set()
-            for _n in _cn:
-                if _n and _n != "未覆盖":
-                    ctrl_info.setdefault(_n, {})
+                _cn = []
+            for _it in _cn:
+                if isinstance(_it, dict):
+                    _n = _it.get("name")
+                    if _n and _n != "未覆盖":
+                        ctrl_info.setdefault(_n, {"size": _it.get("size"),
+                                                  "method": _it.get("method")})
+                elif _it and _it != "未覆盖":
+                    ctrl_info.setdefault(_it, {})
         else:
             sc = call_bridge("scan_categories", timeout=120)
             for c in (sc.get("categories") or []):
@@ -2653,10 +2716,13 @@ def categories_from_recognition(fast=False):
         auto_thin = bool(names and _plate * 2 >= len(names))
 
         ci = ctrl_info.get(g) or {}
-        size = ci.get("size") if ci.get("size") is not None else sz.get(g)
+        # 输入框只显示 Mesh 里的真实尺寸；配置值仅作为推荐/占位
+        size = ci.get("size") if ci.get("size") is not None else None
+        if size is None and ci:
+            size = None
         _ratio = (float(_plate) / len(names)) if names else 0.0
-        # 薄板体占多数（≥60%）时以几何为准，不被残留的 thin_off 抑制
-        _auto = auto_thin and (g not in _thin_off or _ratio >= 0.6)
+        # 用户明确取消过（thin_off）就不再自动标薄板
+        _auto = auto_thin and (g not in _thin_off)
         # 规则只有两条：标了薄板 = 扫掠；没标 = 自动
         _is_thin_now = (g in thin) or _auto
         if _is_thin_now:
@@ -4556,6 +4622,12 @@ tr:hover td{background:#141a22}
                     cats.remove(cat)
                 cfg["locked_cats"] = cats
                 save_config(cfg)
+                try:
+                    _flags_set("locked_cats", cats)
+                    cache_invalidate()
+                    _warm_categories()
+                except Exception:
+                    pass
                 return self._json({"ok": True, "locked_cats": cats})
 
             if path == "/api/ungroup":
@@ -4931,30 +5003,38 @@ tr:hover td{background:#141a22}
                 cat = (body.get("cat") or "").strip()
                 on = bool(body.get("thin"))
                 cfg = load_config()
-                cats = cfg.setdefault("thin_cats", [])
+                d, _ok = _flags_load()
+                cats = list(d.get("thin_cats") or
+                            _flags_get(cfg, "thin_cats"))
+                off = list(d.get("thin_off") or
+                           _flags_get(cfg, "thin_off"))
                 methods = cfg.setdefault("methods", {})
                 divs = cfg.setdefault("thin_divisions", {})
-                off = cfg.setdefault("thin_off", [])
                 if on:
-                    if cat not in cats:
+                    if cat and cat not in cats:
                         cats.append(cat)
-                    if cat in off:
-                        off.remove(cat)
+                    off = [x for x in off if x != cat]
                     methods[cat] = "Sweep"
                     divs[cat] = 2
                 else:
-                    if cat in cats:
-                        cats.remove(cat)
-                    # 记住"用户明确取消"，压制自动识别
-                    if cat not in off:
+                    cats = [x for x in cats if x != cat]
+                    if cat and cat not in off:
                         off.append(cat)
                     methods[cat] = "Automatic"
                     divs.pop(cat, None)
-                cfg["thin_cats"] = cats
                 cfg["methods"] = methods
                 cfg["thin_divisions"] = divs
                 save_config(cfg)
+                d["thin_cats"] = cats
+                d["thin_off"] = off
+                _flags_save(d)
+                try:
+                    cache_invalidate()
+                    _warm_categories()
+                except Exception:
+                    pass
                 return self._json({"ok": True, "thin_cats": cats,
+                                   "thin_off": off,
                                    "methods": methods, "divisions": divs})
 
             if path == "/api/clear":
