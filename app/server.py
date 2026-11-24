@@ -2223,13 +2223,16 @@ def connect_instance(pid):
         except Exception:
             pass
 
-    # 未连接：先放命令进剪贴板，再走全自动尝试
+    # 未连接：只做"激活窗口 + 打开面板 + 复制命令"，不自动敲 Ctrl+F5
     clip = _set_clipboard(MECH_CONNECT_CMD)
-    auto = {"ok": False, "stage": "未开始"}
+    auto = {"ok": False, "stage": "等待手动加载",
+            "error": "为避免重复启动定时器导致 Mechanical 闪退，连接不再自动执行脚本"}
     try:
-        auto = _mech_auto_connect(pid)
-    except Exception as e:
-        auto = {"ok": False, "stage": "异常", "error": str(e)[:160]}
+        act = _activate_window(pid)
+        if act == "ok" and not _scripting_pane_open(pid):
+            _open_scripting_pane(pid)
+    except Exception:
+        pass
     if auto.get("ok"):
         try:
             _TARGET["pid"] = int(pid)
@@ -2245,15 +2248,14 @@ def connect_instance(pid):
         return {"ok": True, "connected": True, "pid": pid,
                 "message": "已自动连接并切换",
                 "stage": auto.get("stage")}
-    act = auto.get("stage") or "失败"
-    pane = "auto"
+    act = "ok"
+    pane = "ready"
     return {"ok": True, "connected": False, "pid": pid,
             "activated": "ok", "pane": pane, "clipboard": clip,
             "stage": auto.get("stage"),
             "command": MECH_CONNECT_CMD,
-            "message": "自动连接未成功（停在：%s）。请到 Mechanical 的 "
-                       "Scripting 面板手动点运行或按 Ctrl+F5；命令已在剪贴板。"
-                       % (auto.get("stage") or "未知")}
+            "message": "已激活该窗口并把命令放进剪贴板。请在它的 Scripting 面板里按一次 Ctrl+F5"
+                       "（只需一次；重复执行会堆叠定时器导致闪退）"}
 
 
 # ============================================================================
@@ -5259,11 +5261,8 @@ def _boot_warm():
         pass
 
 
-try:
-    import threading as _bt
-    _bt.Thread(target=_boot_warm, daemon=True).start()
-except Exception:
-    pass
+# 不在启动时自动预热：Mechanical 刚起来时连续命令容易引起闪退
+# （需要时页面会自行触发首次读取）
 
 
 if __name__ == "__main__":
