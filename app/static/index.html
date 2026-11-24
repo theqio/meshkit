@@ -20,7 +20,7 @@
   .dot{width:9px;height:9px;border-radius:50%;background:var(--err);display:inline-block}
   .dot.on{background:var(--ok);box-shadow:0 0 8px var(--ok)}
   .spacer{flex:1}
-  main{display:grid;grid-template-columns:470px minmax(0,1fr) 360px;gap:14px;padding:14px;align-items:start}
+  main{display:grid;grid-template-columns:560px minmax(0,1fr) 340px;gap:14px;padding:14px;align-items:start}
   @media (max-width:1280px){ main{grid-template-columns:1fr} }
   .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
   .card h2{font-size:13px;margin:0 0 12px;color:var(--dim);font-weight:600;
@@ -53,6 +53,14 @@
   th{color:var(--dim);font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.5px}
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .size-input{width:70px}
+  #catTable{overflow-x:auto}
+  #catTable table{min-width:600px;table-layout:auto}
+  #catTable td:first-child,#catTable th:first-child{white-space:nowrap;max-width:200px;
+    overflow:hidden;text-overflow:ellipsis}
+  #catTable td.num,#catTable th.num{white-space:nowrap}
+  #expList{overflow:auto}
+  #expList table{min-width:520px}
+  #expList td,#expList th{white-space:nowrap}
   #log{height:190px;overflow:auto;background:#0b0f14;border:1px solid var(--line);
        border-radius:8px;padding:10px;font:12px/1.5 Consolas,monospace;white-space:pre-wrap;color:#b6c2cf}
   .finding{border-left:3px solid var(--line);padding:8px 10px;margin-bottom:8px;
@@ -578,8 +586,15 @@ function renderCategories(cats, methodsAvailable){
         title="已标记含圆孔，点击取消" onclick="toggleHole('${c.name}', false)">圆孔 ×</span>`);
     else badges.push(`<span class="badge" style="cursor:pointer;opacity:.45"
         title="点击标记为含圆孔（圆孔周边需加密/面网格控制）" onclick="toggleHole('${c.name}', true)">+圆孔</span>`);
-    const sizeVal = (c.size_mm === null || c.size_mm === undefined) ? '' : c.size_mm;
-    const recVal = (c.size_recommended === undefined || c.size_recommended === null) ? '' : c.size_recommended;
+    const fmtSize = (v) => {
+      if(v === null || v === undefined || v === '') return '';
+      const n = Number(v);
+      if(!isFinite(n)) return String(v);
+      // 最多 1 位小数，去掉多余的 .0
+      return (Math.round(n * 10) / 10).toString();
+    };
+    const sizeVal = fmtSize(c.size_mm);
+    const recVal = fmtSize(c.size_recommended);
     const allSup = !!c.is_all_suppressed;
     if(allSup) badges.push(`<span class="badge" style="opacity:.6"
         title="该类别所有体都被抑制（不参与网格划分），应用时会跳过">已抑制</span>`);
@@ -601,11 +616,12 @@ function renderCategories(cats, methodsAvailable){
         ? '<span class="badge warn" title="控制项未设尺寸，跟随全局">未设</span>' : ''}</td>
       <td class="num muted">${c.bodies}</td>
       <td class="num"><input type="number" class="size-input" data-cat="${c.name}" ${disAttr}
-         step="0.5" min="2" max="60" value="${c.size_is_default ? '' : sizeVal}"
+         step="0.5" min="1" max="200" value="${c.size_is_default ? '' : sizeVal}"
          placeholder="${c.size_is_default ? '未设' : recVal}"
          title="${c.size_is_default ? '该控制项还没设尺寸，会跟随全局；填数字点应用即写入' : (c.size_basis||'').replace(/"/g,'')}"
-         style="width:52px"></td>
-      <td class="num" style="color:${recVal?'#9fd2ff':'var(--dim)'};font-size:12.5px"
+         style="width:78px;text-align:right;font-variant-numeric:tabular-nums"></td>
+      <td class="num" style="color:${recVal?'#9fd2ff':'var(--dim)'};font-size:12.5px;
+          min-width:64px;white-space:nowrap"
           title="${(c.size_basis||'').replace(/"/g,'')}">${recVal || '—'}</td>
       <td><select class="method-sel" data-cat="${c.name}" ${disAttr}
           onchange="onMethodChange('${c.name}', this.value)"
@@ -1956,7 +1972,8 @@ async function loadCategories(){
     }
     // 核对：这份列表来自哪个实例
     try{
-      if(r.pid && r.pid !== INSTANCES_TARGET_PID()){
+      const _tgtPid = INSTANCES_TARGET_PID();
+      if(_tgtPid && r.pid && r.pid !== _tgtPid){
         log('⚠ 类别列表来自 ' + (r.project || r.pid) +
             '，与当前目标 ' + INSTANCES_TARGET_LABEL() + ' 不一致，正在重新对齐');
         loadAgents();
