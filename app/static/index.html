@@ -2025,8 +2025,9 @@ function readMethodsFromUI(){
 }
 
 /* ---------------- 操作 ---------------- */
+
 async function applyAll(){
-  setBusy(true, '应用设置与尺寸');
+  setBusy(true, '应用设置与尺寸（可能要 1~3 分钟）');
   try{
     const _sizes = readSizesFromUI();
     const _methods = readMethodsFromUI();
@@ -2036,7 +2037,7 @@ async function applyAll(){
       const cat = (LAST_CATS || []).find(c => c.name === k) || {};
       if(_methods[k] === 'Sweep' && (cat.is_thin_cat || (CFG.thin_cats || []).indexOf(k) >= 0)) _divs[k] = 2;
     });
-    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
+    const r = await api('/api/op', {_timeoutMs: 1200000, method:'POST', body: JSON.stringify({
       op:'apply', payload:{settings: readSettingsFromUI(),
                            sizes: _sizes,
                            methods: _methods,
@@ -2121,7 +2122,7 @@ async function generateMesh(){
   setBusy(true, '生成网格（可能需要几分钟，请勿操作 Mechanical）');
   try{
     const clearFirst = !!($('chkClearMesh') && $('chkClearMesh').checked);
-  const r = await api('/api/op', {method:'POST', body: JSON.stringify(
+  const r = await api('/api/op', {_timeoutMs: 3600000, method:'POST', body: JSON.stringify(
     {op:'mesh', payload:{clear: clearFirst}})});
     if(r.ok){
       log(`网格完成：单元 ${fmt(r.elements)} / 节点 ${fmt(r.nodes)}（${r.seconds}s）`);
@@ -2132,6 +2133,7 @@ async function generateMesh(){
       log('网格失败：' + (r.error||'')); toast('网格生成失败');
     }
   }catch(e){ log('网格异常：'+e); }
+  stopProgressWatch();
   setBusy(false); refresh(); loadFailed(); loadErrorLog(); analyzeMeshRun();
 }
 
