@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.5"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.6"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -5323,12 +5323,14 @@ def _set_auto_thin(ctrl):
         return False
 
 
-def _apply_sweep_divisions(ctrl, method, divisions, ids=None):
-    """扫掠层数（穿过厚度方向分段数）；任何异常都不外抛"""
+def _apply_sweep_divisions(ctrl, method, divisions, ids=None, force=False):
+    """扫掠层数（穿过厚度方向分段数）；任何异常都不外抛
+       force=True：调用方已明确这是薄板类别，跳过"板状"几何门槛
+    """
     try:
         if method not in (u"Sweep", u"MultiZone") or not divisions:
             return False
-        if ids is not None and not _is_plate_like(ids):
+        if (not force) and ids is not None and not _is_plate_like(ids):
             return False
         try:
             n = int(divisions)
@@ -5337,10 +5339,16 @@ def _apply_sweep_divisions(ctrl, method, divisions, ids=None):
         for prop in (u"SweepNumDivisions", u"SweepNumberDivisions"):
             try:
                 setattr(ctrl, prop, n)
-                return True
+                # 回读确认，避免"设了但没生效"
+                try:
+                    cur = _mm_value(_safe(ctrl, prop, 0))
+                    if int(cur) == n:
+                        return True
+                except Exception:
+                    return True
             except Exception:
                 pass
-        for pname in (u"SweepNumDivisions", u"Divisions"):
+        for pname in (u"SweepNumDivisions", u"SweepNumberDivisions", u"Divisions"):
             try:
                 obj = ctrl.PropertyByAPIName(pname)
                 if obj is not None:
@@ -5384,7 +5392,7 @@ def _set_method_for(cat, ids, method, divisions=None):
         if ok:
             if method == u"Sweep":
                 _set_auto_thin(existing)
-            _apply_sweep_divisions(existing, method, divisions, ids)
+            _apply_sweep_divisions(existing, method, divisions, ids, force=True)
         return ok, err
     try:
         adder = _safe(_mesh(), "AddAutomaticMethod")
@@ -5395,7 +5403,7 @@ def _set_method_for(cat, ids, method, divisions=None):
         if ok:
             if method == u"Sweep":
                 _set_auto_thin(ctrl)
-            _apply_sweep_divisions(ctrl, method, divisions, ids)
+            _apply_sweep_divisions(ctrl, method, divisions, ids, force=True)
         return ok, err
     except Exception:
         return False, _tail(traceback.format_exc(), 200)
