@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """
 bridge_agent.py —— 运行在 ANSYS Mechanical 内部的桥接代理（IronPython 2.7）
 
@@ -45,7 +45,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-01.7"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.1"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -3078,6 +3078,14 @@ def op_fix_failed(payload):
                     from Ansys.Core.Units import Quantity
                     target.ElementSize = Quantity(u"%.3f [mm]" % newval)
                     log.append(u"  %s: %.1f -> %.1f mm" % (_txt(b.Name)[:40], cur, newval))
+                    try:
+                        _rm2, _er2 = _exclude_body_from_categories(
+                            bid, _txt(b.Name))
+                        if _rm2:
+                            log.append(u"  %s: 已从 %s 摘除"
+                                       % (_txt(b.Name)[:30], u"、".join(_rm2[:3])))
+                    except Exception:
+                        pass
                 else:
                     # 新建 SIZE_FIX_ 控制项
                     new_name = u"SIZE_FIX_" + _txt(b.Name).replace(u"\\", u"_")[:24]
@@ -3086,6 +3094,20 @@ def op_fix_failed(payload):
                         log.append(u"  %s: 新建失败 %s" % (_txt(b.Name)[:30], err))
                     else:
                         log.append(u"  %s: 新建 10 mm" % (_txt(b.Name)[:40]))
+                        # 关键：把它从类别级尺寸/方法控制项里摘掉，
+                        # 否则类别控制项仍覆盖该体，局部尺寸不生效（一直失败）
+                        try:
+                            _rm, _er = _exclude_body_from_categories(
+                                bid, _txt(b.Name))
+                            if _rm:
+                                log.append(u"  %s: 已从 %s 摘除"
+                                           % (_txt(b.Name)[:30], u"、".join(_rm[:3])))
+                            if _er:
+                                log.append(u"  %s: 摘除告警 %s"
+                                           % (_txt(b.Name)[:30], u"、".join(_er[:2])))
+                        except Exception as _e:
+                            log.append(u"  %s: 摘除失败 %s"
+                                       % (_txt(b.Name)[:30], _txt(_e)[:60]))
             except Exception:
                 log.append(u"  %s: 处理失败 %s" % (_txt(b.Name)[:30],
                                                   _tail(traceback.format_exc(), 200)))
