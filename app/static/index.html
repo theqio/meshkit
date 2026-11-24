@@ -1967,6 +1967,11 @@ async function loadCategories(){
     LAST_CATS = r.categories || [];
     LAST_SUG = r.suggestion || null;
     renderCategories(LAST_CATS, r.methods_available);
+    if(r.ctrl_pending){
+      // 控制项清单还没读到：3 秒后自动重取，灯色会自动更新
+      _catBusy = false;
+      setTimeout(loadCategories, 3000);
+    }
     const thin = LAST_CATS.filter(c=>c.is_thin_cat).length;
     const shell = LAST_CATS.filter(c=>c.is_shell_cat).length;
     $('catHint').innerHTML = `模型共 <b>${r.total_bodies}</b> 个体，归为 <b>${LAST_CATS.length}</b> 个类别`

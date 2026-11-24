@@ -1518,7 +1518,9 @@ def cache_get(key, ttl, producer, block=False):
 
     val = producer()
     if isinstance(val, dict) and val.get("ok"):
-        _CACHE[key] = (time.time(), val)
+        # 控制项还没读到 -> 不缓存，否则"全灰"会停留 60 秒
+        if not (isinstance(val, dict) and val.get("_ctrl_known") is False):
+            _CACHE[key] = (time.time(), val)
     return val
 
 
@@ -2589,6 +2591,8 @@ def categories_from_recognition(fast=False):
         })
     cats.sort(key=lambda c: -c["bodies"])
     return {"ok": True, "categories": cats,
+            "_ctrl_known": bool(ctrl_known),
+            "ctrl_pending": (not ctrl_known),
             "total_bodies": rec.get("total") or len(bodies),
             "methods_available": ["Automatic", "Tetrahedrons", "HexDominant",
                                   "Sweep", "MultiZone", "CutCell"],
