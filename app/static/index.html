@@ -106,6 +106,8 @@
   <span class="spacer"></span>
   <span class="muted" id="progText" style="font-size:12px"></span>
   <button class="btn danger" id="btnStop" hidden>■ 停止</button>
+  <button class="btn" id="btnUnstick" hidden title="页面卡住时点这里解除"
+          onclick="forceUnbusy()">解除卡住</button>
   <button class="btn" id="btnRefresh">刷新状态</button>
   <button class="btn primary" id="btnAI">AI 分析</button>
   <button class="btn" id="btnSettings" title="设置（大模型密钥等）">设置</button>
@@ -353,18 +355,70 @@ function log(msg){
   el.textContent += `\n[${ts}] ${msg}`;
   el.scrollTop = el.scrollHeight;
 }
+/* 忙碌看门狗：防止 Mechanical 已完成但页面一直卡住 */
+let _busyStartedAt = 0, _lastProgChange = 0, _lastProgSig = '', _watchdogTimer = null;
+
+function _stopWatchdog(){
+  if(_watchdogTimer){ clearInterval(_watchdogTimer); _watchdogTimer = null; }
+}
+
+function _startWatchdog(){
+  _stopWatchdog();
+  _busyStartedAt = Date.now();
+  _lastProgChange = Date.now();
+  _lastProgSig = '';
+  _watchdogTimer = setInterval(async () => {
+    if(!BUSY){ _stopWatchdog(); return; }
+    let p = null;
+    try{ p = await api('/api/progress', {_timeoutMs: 5000}); }catch(e){ p = null; }
+    const sig = p ? `${p.op||''}|${p.step||''}|${p.done||''}` : '';
+    const now = Date.now();
+    if(sig && sig !== _lastProgSig){ _lastProgSig = sig; _lastProgChange = now; }
+    const idle = now - _lastProgChange;
+    const step = (p && p.step) || '';
+    const finished = !step || step === '已结束' || step === '结束' || step === '完成';
+    // 进度已结束 且 25 秒没变化 → 认为后端已完成，只是请求没回来
+    if(finished && idle > 25000){
+      log('⚠ 检测到 Mechanical 已结束，但页面仍在等待；已自动解除忙碌状态');
+      forceUnbusy();
+    }else if(idle > 600000){
+      log('⚠ 10 分钟没有任何进度变化，已自动解除忙碌（请手动确认 Mechanical 状态）');
+      forceUnbusy();
+    }
+  }, 4000);
+}
+
+function forceUnbusy(){
+  _stopWatchdog();
+  try{ setBusy(false); }catch(e){}
+  try{ refresh(); loadCategories(); }catch(e){}
+}
+
 function setBusy(on, label){
   BUSY = on;
-  ['btnMesh','btnFix','btnQuality','btnApply','btnFailList','btnScanCat'].forEach(id => $(id).disabled = on);
-  $('btnStop').hidden = !on;
+  ['btnMesh','btnFix','btnQuality','btnApply','btnFailList','btnScanCat'].forEach(id => {
+    const el = $(id); if(el) el.disabled = on;
+  });
+  const st = $('btnStop'); if(st) st.hidden = !on;
+  const us = $('btnUnstick'); if(us) us.hidden = !on;
   if(on){
     if(label) log(`${label} …`);
     startProgressPoll();
+    _startWatchdog();
   }else{
     stopProgressPoll();
-    $('progText').textContent = '';
+    _stopWatchdog();
+    const pt = $('progText'); if(pt) pt.textContent = '';
   }
 }
+
+/* ESC 手动解除忙碌 */
+document.addEventListener('keydown', (e) => {
+  if(e.key === 'Escape' && BUSY){
+    log('已按 ESC 手动解除忙碌状态');
+    forceUnbusy();
+  }
+});
 
 /* ---------------- 进度与停止 ---------------- */
 let PROG_TIMER = null;

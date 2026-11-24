@@ -4599,6 +4599,27 @@ tr:hover td{background:#141a22}
                     pass
                 return self._json(_res)
 
+            if path == "/api/agent/reload":
+                body = self._body()
+                try:
+                    _pid_r = int(body.get("pid") or target_pid())
+                except Exception:
+                    _pid_r = target_pid()
+                if not _pid_r:
+                    return self._json({"ok": False, "error": "没有目标实例"})
+                # 先移除注册文件，强制走一次真正的 Ctrl+F5 重载
+                try:
+                    _rf = os.path.join(IPC_DIR, "agents", "%d.json" % int(_pid_r))
+                    if os.path.isfile(_rf):
+                        os.remove(_rf)
+                except Exception:
+                    pass
+                _r = _mech_auto_connect(_pid_r)
+                return self._json({"ok": bool(_r.get("ok")),
+                                   "pid": _pid_r, "stage": _r.get("stage"),
+                                   "error": _r.get("error"),
+                                   "message": "已重新加载代理" if _r.get("ok") else "自动加载未成功，请手动 Ctrl+F5"})
+
             if path == "/api/agent/select":
                 body = self._body()
                 try:
