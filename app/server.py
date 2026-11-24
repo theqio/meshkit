@@ -1622,6 +1622,77 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
     return None, None
 
 
+def premesh_check():
+    """网格前预估：单元/节点数 + 是否超预算"""
+    try:
+        lb = call_bridge("list_bodies", timeout=300)
+        if not lb.get("ok"):
+            return {"ok": False, "error": lb.get("error") or "读不到体"}
+        bodies = lb.get("bodies") or []
+        cats = categories_from_recognition(fast=True)
+        groups = {}
+        for c in (cats.get("categories") or []):
+            groups[c.get("name")] = c.get("body_names") or []
+        cfg = load_config()
+        sizes = cfg.get("sizes") or {}
+        sset = cfg.get("settings") or {}
+        global_size = float(sset.get("ElementSize") or 40.0)
+        budget_nodes = int(cfg.get("budget_nodes") or 7000000)
+        bmap = {b.get("name"): b for b in bodies}
+
+        detail = []
+        est_total = 0.0
+        for name, names in groups.items():
+            if name in ("未分组", "其他"):
+                continue
+            size = sizes.get(name) or global_size
+            try:
+                size = float(size)
+            except Exception:
+                size = global_size
+            if size <= 0:
+                continue
+            est = 0.0
+            vol = 0.0
+            for n in names:
+                b = bmap.get(n) or {}
+                try:
+                    _v = float(b.get("vol") or 0)
+                except Exception:
+                    _v = 0.0
+                vol += _v
+                _d = sorted([float(b.get("lx") or 0), float(b.get("ly") or 0),
+                             float(b.get("lz") or 0)])
+                if _d[0] <= 0:
+                    continue
+                if _d[0] <= 12:
+                    # 薄板：面积 × 厚度方向 2 层
+                    est += (_d[1] * _d[2]) / (size * size) * 2.0
+                elif _v > 0:
+                    est += _v / (size ** 3)
+                else:
+                    est += (_d[1] * _d[2]) / (size * size) * (_d[0] / size)
+            if est <= 0:
+                continue
+            est_total += est
+            detail.append({"category": name, "bodies": len(names),
+                           "size": size, "volume": round(vol, 1),
+                           "est_elements": int(est)})
+        detail.sort(key=lambda x: -x["est_elements"])
+        est_nodes = int(est_total * 1.6)
+        return {"ok": True,
+                "est_elements": int(est_total),
+                "est_nodes": est_nodes,
+                "budget_nodes": budget_nodes,
+                "budget_elements": int(cfg.get("budget_elements") or 1450000),
+                "over": est_nodes > budget_nodes,
+                "ratio": round(float(est_nodes) / budget_nodes, 2) if budget_nodes else 0,
+                "top": detail[:8],
+                "current_elements": cats.get("elements") or 0}
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:160]}
+
+
 def _mech_busy():
     """Mechanical 是否在跑长任务
        只看真正耗时的步骤（网格/修复），不看内部读操作，避免把读接口挡掉
@@ -3731,6 +3802,9 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception as _e:
                     _out["cached_err"] = str(_e)[:120]
                 return self._json(_out)
+
+            if path == "/api/premesh":
+                return self._json(premesh_check())
 
             if path == "/api/model_key":
                 try:
