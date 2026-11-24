@@ -390,9 +390,14 @@ function _startWatchdog(){
   }, 4000);
 }
 
-function forceUnbusy(){
+async function forceUnbusy(){
   _stopWatchdog();
   try{ setBusy(false); }catch(e){}
+  // 同时释放服务端卡住的桥接锁，否则后面还是"忙"
+  try{
+    const r = await api('/api/bridge/reset', {method:'POST', body:'{}', _timeoutMs: 8000});
+    if(r && r.ok) log('已重置桥接锁：' + (r.message||''));
+  }catch(e){}
   try{ refresh(); loadCategories(); }catch(e){}
 }
 
