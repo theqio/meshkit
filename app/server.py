@@ -2105,6 +2105,51 @@ def refresh_derived_data():
     return out
 
 
+def debug_thin_detail(cat):
+    """诊断：某类别内每个体的薄板判定明细"""
+    sys.path.insert(0, APP_DIR)
+    import geo_recognize
+    try:
+        import experience as _exp
+        _exp_err = None
+    except Exception as e:
+        _exp = None
+        _exp_err = str(e)[:100]
+    lb = call_bridge("list_bodies", timeout=300)
+    bodies = lb.get("bodies") or []
+    rec = geo_recognize.recognize(bodies, kb_extra_rules())
+    groups = rec.get("groups") or {}
+    names = groups.get(cat) or []
+    bmap = {b.get("name"): b for b in bodies}
+    out = []
+    plate = 0
+    for n in names:
+        b = bmap.get(n) or {}
+        d = sorted([b.get("lx") or 0, b.get("ly") or 0, b.get("lz") or 0])
+        if d[0] <= 0:
+            continue
+        ratio = d[1] / d[0]
+        w = None
+        if _exp is not None:
+            try:
+                w = (_exp.features(b) or {}).get("wall")
+            except Exception:
+                w = None
+        is_plate = False
+        if d[0] <= 8 and ratio >= 3:
+            is_plate = True
+        elif ratio >= 3 and d[0] <= 60 and w and w <= 4.5:
+            is_plate = True
+        if is_plate:
+            plate += 1
+        out.append({"name": n, "dims": [round(x, 1) for x in d],
+                    "ratio": round(ratio, 2), "wall": w,
+                    "vol": b.get("vol"), "plate": is_plate})
+    return {"ok": True, "cat": cat, "n": len(names), "plate": plate,
+            "auto_thin": bool(names and plate * 2 >= len(names)),
+            "exp_ok": _exp is not None, "exp_err": _exp_err, "bodies": out}
+
+
 def categories_from_recognition():
     """类别 = 几何识别出的分组（与扫描结果一致）"""
     sys.path.insert(0, APP_DIR)
@@ -2144,10 +2189,15 @@ def categories_from_recognition():
     cfg = load_config()
     sz = cfg.get("sizes") or {}
     md = cfg.get("methods") or {}
-    thin = cfg.get("thin_cats") or []
-    hole = cfg.get("hole_cats") or []
-    lock = cfg.get("locked_cats") or []
-    sw = cfg.get("sweep_ok") or []
+    _cur_names = set(groups.keys())
+    def _only_current(lst):
+        return [x for x in (lst or []) if x in _cur_names]
+
+    thin = _only_current(cfg.get("thin_cats") or [])
+    hole = _only_current(cfg.get("hole_cats") or [])
+    lock = _only_current(cfg.get("locked_cats") or [])
+    sw = _only_current(cfg.get("sweep_ok") or [])
+    _thin_off = _only_current(cfg.get("thin_off") or [])
     setts = cfg.get("settings") or {}
     minsize = setts.get("MinimumSize") or 10
 
@@ -2223,10 +2273,14 @@ def categories_from_recognition():
 
         ci = ctrl_info.get(g) or {}
         size = ci.get("size") if ci.get("size") is not None else sz.get(g)
-        _off = cfg.get("thin_off") or []
-        _auto = auto_thin and (g not in _off)
+        _ratio = (float(_plate) / len(names)) if names else 0.0
+        # 薄板体占多数（≥60%）时以几何为准，不被残留的 thin_off 抑制
+        _auto = auto_thin and (g not in _thin_off or _ratio >= 0.6)
         method = ci.get("method") or md.get(g) or (
             "Sweep" if (g in thin or g in sw or _auto) else "Automatic")
+        # 薄板类别一律用扫掠（标签与方法保持一致）
+        if (g in thin) or _auto:
+            method = "Sweep"
 
         if sup and sup >= len(names) and names:
             light, reason = "muted", "全部已抑制（不参与网格）"
@@ -2254,6 +2308,11 @@ def categories_from_recognition():
             "method": method,
             "is_thin_cat": (g in thin) or _auto,
             "auto_thin": _auto,
+            "method_note": ("扫掠（手动标记扫掠可用）"
+                            if (method == "Sweep" and not ((g in thin) or _auto))
+                            else ""),
+            "plate_bodies": _plate,
+            "thin_ratio": (round(float(_plate) / len(names), 3) if names else 0),
             "thin_divisions": (2 if ((g in thin) or _auto) else None),
             "median_wall": med, "is_hole_cat": g in hole,
             "is_locked": g in lock, "is_sweep_ok": g in sw,
@@ -3420,6 +3479,17 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/ovr/migrate":
                 return self._json(migrate_overrides_per_model())
+
+            if path == "/api/debug/thin":
+                _cat = ""
+                try:
+                    _qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+                    for _kv in _qs.split("&"):
+                        if _kv.startswith("cat="):
+                            _cat = unquote(_kv[4:].replace("+", " "))
+                except Exception:
+                    _cat = ""
+                return self._json(debug_thin_detail(_cat))
 
             if path == "/api/model_key":
                 try:
