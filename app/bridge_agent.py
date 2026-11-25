@@ -33,7 +33,36 @@ import sys
 import time
 import traceback
 
-IPC_DIR = r"D:\ai\meshkit\app\ipc"
+# ---- 安装目录自动定位（不再写死 D:\ai\meshkit）----
+def _resolve_root():
+    cands = []
+    try:
+        env = os.environ.get("MESHKIT_ROOT")
+        if env:
+            cands.append(env)
+    except Exception:
+        pass
+    try:
+        cands.append(os.path.dirname(os.path.dirname(
+            os.path.abspath(__file__))))
+    except Exception:
+        pass
+    try:
+        cands.append(os.getcwd())
+        cands.append(os.path.join(os.getcwd(), "meshkit"))
+    except Exception:
+        pass
+    for c in cands:
+        try:
+            if c and os.path.isdir(os.path.join(c, "app")):
+                return c
+        except Exception:
+            continue
+    return r"D:\ai\meshkit"
+
+
+ROOT = _resolve_root()
+IPC_DIR = os.path.join(ROOT, "app", "ipc")
 AGENT_PID = os.getpid()
 AGENTS_DIR = os.path.join(IPC_DIR, "agents")
 try:
@@ -44,8 +73,8 @@ CMD_PATH = os.path.join(IPC_DIR, "cmd_%d.json" % AGENT_PID)
 RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
-ROOT = r"D:\ai\meshkit"
-AGENT_VERSION = u"2026-12-02.10"   # 每次改代理代码都要改这里，用来确认是否已重载
+# ROOT 已在文件开头自动定位
+AGENT_VERSION = u"2026-12-02.11"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0

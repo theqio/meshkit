@@ -983,7 +983,10 @@ def _action_for(titles):
     return "查看消息原文"
 
 
-MECH_CONNECT_CMD = 'execfile("D:/ai/meshkit/app/bridge_agent.py")'
+MECH_CONNECT_CMD = (
+    'import os;os.environ["MESHKIT_ROOT"]=r"%s";'
+    'execfile(r"%s")'
+) % (ROOT, os.path.join(APP_DIR, "bridge_agent.py").replace("\\", "/"))
 
 
 _PROCS_CACHE = {"ts": 0, "data": []}

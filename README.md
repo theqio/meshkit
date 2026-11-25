@@ -31,16 +31,19 @@ python --version
 **方式 A（推荐，用 Git）**
 
 ```bat
-git clone https://github.com/<你的账号>/meshkit.git D:\ai\meshkit
+git clone https://github.com/theqio/meshkit.git meshkit
 ```
+
+可以克隆到任意目录（当前目录下会生成 `meshkit` 文件夹）。
 
 **方式 B（用压缩包）**
 
-把 `meshkit` 文件夹整个复制到 `D:\ai\meshkit`（路径请保持一致，脚本里有写死的路径引用）。
+把压缩包解压到**任意目录**（例如 `D:\tools\meshkit`、`C:\Users\你\meshkit` 都可以）。
+程序会自动识别自己的安装位置，不需要改任何配置。
 
 ### 3. 启动服务
 
-双击 `D:\ai\meshkit\加载桥接.bat`
+双击解压目录里的 **`加载桥接.bat`**
 
 它会：
 1. 在后台启动网页服务（端口 8765）
@@ -49,7 +52,7 @@ git clone https://github.com/<你的账号>/meshkit.git D:\ai\meshkit
 也可以手动启动：
 
 ```bat
-cd /d D:\ai\meshkit\app
+cd /d <你的安装目录>\app
 python server.py
 ```
 
@@ -59,10 +62,11 @@ python server.py
 
 1. 打开 Mechanical（你的 `.wbpj` 工程）
 2. 顶部切到 **Automation** 选项卡 → 点 **Scripting**
-3. 在脚本框里输入这一行：
+3. 命令不用手写：双击 `加载桥接.bat` 时它已经**自动生成并复制到剪贴板**，
+   直接在该脚本框里 `Ctrl+V` 粘贴即可（内容形如）：
 
 ```python
-execfile("D:/ai/meshkit/app/bridge_agent.py")
+import os;os.environ["MESHKIT_ROOT"]=r"<你的安装目录>";execfile(r"<你的安装目录>/app/bridge_agent.py")
 ```
 
 4. 按 **Ctrl+F5** 运行

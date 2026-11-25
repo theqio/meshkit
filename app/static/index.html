@@ -514,7 +514,8 @@ async function refresh(){
     $('dot').className = 'dot' + (on ? ' on' : '');
     $('bridgeText').textContent = on ? '已连接 Mechanical' : '未连接 Mechanical';
     if(!on){
-      $('summary').textContent = '桥接未连接。请在 Mechanical 的 Scripting 面板运行：execfile("D:/ai/meshkit/app/bridge_agent.py")';
+      $('summary').textContent = '桥接未连接。请在 Mechanical 的 Scripting 面板运行：' +
+        (window.CONNECT_CMD || 'execfile("<安装目录>/app/bridge_agent.py")');
       return;
     }
     const st = await api('/api/status', {_timeoutMs: 12000});
@@ -918,6 +919,7 @@ async function loadAgents(){
     if(r && r.timeout) return;
     if(!r.ok) return;
     INSTANCES = r.instances || [];
+    if(r.connect_cmd) window.CONNECT_CMD = r.connect_cmd;
     if(!INSTANCES.length){
       sel.innerHTML = '<option>没有检测到 Mechanical</option>';
       return;
@@ -1057,7 +1059,7 @@ function showConnectGuide(pid, r){
 }
 
 function copyConnectCmd(){
-  const cmd = 'execfile("D:/ai/meshkit/app/bridge_agent.py")';
+  const cmd = window.CONNECT_CMD || 'execfile("<安装目录>/app/bridge_agent.py")';
   if(navigator.clipboard){
     navigator.clipboard.writeText(cmd).then(
       () => toast('命令已复制'), () => toast('复制失败，请手动选中'));
