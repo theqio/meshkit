@@ -187,7 +187,7 @@ python app\check_pipeline.py  :: 期望「全部检查通过」
 
 ---
 
-## 九、亿赛通（DLP）加密：必须走"明文副本"流程
+## 九、亿赛通（DLP）加密：已改为**自动同步**（不用手动导出导入）
 
 **问题**：项目目录 `D:\ai\meshkit` 里的文件在磁盘上是**密文**，只有白名单进程（Python）能透明解密。
 Antigravity / VS Code 等外部编辑器直接打开会是乱码。
@@ -200,20 +200,23 @@ python 读同一文件                                  → 明文
 %TEMP% 目录                                       → 不加密，任何程序都是明文
 ```
 
-### 流程（三步）
+### 现在的用法：零操作
 
-```bat
-:: 1) 导出明文副本到临时目录（不加密区）
-python D:\ai\meshkit\app\tools\dlp_bridge.py export
-::    默认导出到 %TEMP%\meshkit_work
+双击 `加载桥接.bat` 会同时启动一个后台进程 `MeshKit DLP Sync`（窗口最小化，别关）：
 
-:: 2) 让 Antigravity 打开并修改这个目录
-::    C:\Users\<你>\AppData\Local\Temp\meshkit_work
-::    （只改 .py / .html / .md / .json，不要碰 ipc、config.json）
-
-:: 3) 改完导回项目（由 Python 写回，内容正确）
-python D:\ai\meshkit\app\tools\dlp_bridge.py import
 ```
+项目 D:\ai\meshkit  ⇄  %TEMP%\meshkit_work     每 2 秒双向同步
+```
+
+- 我改了项目文件 → 2 秒内自动出现在 `%TEMP%\meshkit_work`（Antigravity 能看到）
+- Antigravity 改了 `%TEMP%\meshkit_work` → 2 秒内自动写回项目（Python 写，内容正确）
+- 两边同时改同一文件 → 以"修改时间较新"的一方为准，并记录冲突日志
+
+日志：`%TEMP%\meshkit_work\.dlp_sync.log`
+手动检查：`python app\tools\dlp_sync.py --status`
+手动同步一次：`python app\tools\dlp_sync.py --once`
+
+> 旧的 `工具_DLP导出.bat` / `工具_DLP导入.bat` 仍保留，作为应急手段；日常不需要点。
 
 可选自检（确认导出副本能被外部程序读取）：
 

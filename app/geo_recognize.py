@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """geo_recognize.py —— 纯几何识别零部件（不看名字）
 
 规则顺序：
@@ -368,4 +368,5 @@ def prune_overrides(current_names):
     if stale:
         _save_json(OVERRIDE_PATH, ov)
     return {"kept": len(ov), "dropped": len(stale)}
+
 
