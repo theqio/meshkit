@@ -61,7 +61,7 @@ PROGRESS_PATH = os.path.join(IPC_DIR, "progress.json")
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("MESHKIT_PORT", "8765"))
-OP_TIMEOUT = {"ping": 8, "status": 30, "apply": 60, "mesh": 2400,
+OP_TIMEOUT = {"ping": 8, "status": 30, "apply": 600, "mesh": 2400,
               "fix_failed": 3000, "quality": 600, "exec": 900}
 
 _ipc_lock = threading.Lock()
@@ -80,6 +80,17 @@ DEFAULT_SETTINGS = {
 # ============================================================================
 #  配置
 # ============================================================================
+_MODEL_CFG_KEYS = ("sizes", "methods", "thin_divisions", "settings", "advanced")
+
+
+def _model_cfg_path(key=None):
+    try:
+        k = key or _model_key()
+    except Exception:
+        k = "default"
+    return os.path.join(APP_DIR, "model_config__%s.json" % k)
+
+
 def load_config() -> dict:
     cfg = {}
     if os.path.isfile(CFG_PATH):
@@ -88,6 +99,26 @@ def load_config() -> dict:
                 cfg = json.load(f)
         except Exception:
             cfg = {}
+    # 叠加当前模型独立配置（sizes/methods/thin_divisions/settings/advanced）
+    try:
+        mp = _model_cfg_path()
+        if os.path.isfile(mp):
+            with open(mp, "r", encoding="utf-8") as f:
+                mcfg = json.load(f) or {}
+            for k in _MODEL_CFG_KEYS:
+                if k in mcfg:
+                    cfg[k] = mcfg[k]
+    except Exception:
+        pass
+    # 同步当前模型的分模型标记（thin_cats/hole_cats/locked_cats/sweep_ok）
+    try:
+        md, mok = _flags_load()
+        if mok:
+            for fk in ("thin_cats", "thin_off", "hole_cats", "locked_cats", "sweep_ok"):
+                if fk in md:
+                    cfg[fk] = list(md.get(fk) or [])
+    except Exception:
+        pass
     cfg.setdefault("sizes", dict(DEFAULT_SIZES))
     cfg.setdefault("settings", dict(DEFAULT_SETTINGS))
     cfg.setdefault("methods", {})          # {类别: 方法名}，默认空=全部 Automatic
@@ -96,6 +127,7 @@ def load_config() -> dict:
     cfg.setdefault("sweep_ok", [])         # 已验证扫掠成功的类别
     cfg.setdefault("hole_cats", [])        # 圆孔标签
     cfg.setdefault("locked_cats", [])      # 已锁定的类别
+    cfg.setdefault("thin_cats", [])        # 薄板标签（按模型独立）
     cfg.setdefault("budget_nodes", 7000000)
     cfg.setdefault("budget_elements", 1450000)
     cfg.setdefault("llm", {})
@@ -106,8 +138,30 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict) -> None:
+    # 模型级字段单独写入 model_config__<model>.json，避免跨模型串写
+    try:
+        mdata = {k: cfg[k] for k in _MODEL_CFG_KEYS if k in cfg}
+        with open(_model_cfg_path(), "w", encoding="utf-8") as f:
+            json.dump(mdata, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
+    # 全局配置仅保存跨模型字段，不再把当前模型的 sizes/methods 写回全局 config.json
+    gcfg = {}
+    if os.path.isfile(CFG_PATH):
+        try:
+            with open(CFG_PATH, "r", encoding="utf-8") as f:
+                gcfg = json.load(f) or {}
+        except Exception:
+            gcfg = {}
+    # 全局文件里不再保留模型级字段（避免新模型继承上一个模型的尺寸/方法）
+    for _k in _MODEL_CFG_KEYS:
+        gcfg.pop(_k, None)
+    for k, v in cfg.items():
+        if k in _MODEL_CFG_KEYS:
+            continue
+        gcfg[k] = v
     with open(CFG_PATH, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+        json.dump(gcfg, f, ensure_ascii=False, indent=2)
 
 
 # ============================================================================
@@ -1206,9 +1260,24 @@ _INST_CACHE = {}
 
 
 def call_bridge_pid(pid, op, payload=None, timeout=30):
-    """直接向指定 pid 的代理下命令（不改当前目标）"""
+    """直接向指定 pid 的代理下命令（不改当前目标）
+       与 call_bridge 共用同一把按实例锁，避免两条命令抢同一个 cmd_<pid>.json
+    """
     pid = int(pid)
     os.makedirs(IPC_DIR, exist_ok=True)
+    _lk = _pid_lock(pid)
+    if not _lk.acquire(timeout=min(timeout, 15)):
+        return {"ok": False, "busy": True, "error": "该实例正在忙"}
+    try:
+        return _call_bridge_pid_locked(pid, op, payload, timeout)
+    finally:
+        try:
+            _lk.release()
+        except Exception:
+            pass
+
+
+def _call_bridge_pid_locked(pid, op, payload=None, timeout=30):
     seq = uuid.uuid4().hex[:12]
     cmd_path = os.path.join(IPC_DIR, "cmd_%d.json" % pid)
     res_path = os.path.join(IPC_DIR, "result_%d.json" % pid)
@@ -1531,6 +1600,8 @@ def cache_invalidate(prefix=""):
     for k in list(_CACHE.keys()):
         if not prefix or str(k).startswith(str(prefix)):
             _CACHE.pop(k, None)
+    if not prefix:
+        _CTRL_CACHE.clear()
 
 
 def _warm_categories():
@@ -1596,7 +1667,7 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
                               "size": c.get("size_mm"),
                               "method": c.get("method"),
                               "bodies": c.get("count")})
-            if items:
+            if rp.get("ok"):
                 _CTRL_CACHE[pid] = (time.time(), items)
                 _CTRL_BUSY[pid] = False
                 return items, 0.0
@@ -1622,7 +1693,7 @@ def ctrl_names_cached(pid=None, ttl=300, wait=False):
                                   "size": c.get("size_mm"),
                                   "method": c.get("method"),
                                   "bodies": c.get("count")})
-                if items:
+                if rp.get("ok"):
                     _CTRL_CACHE[pid] = (time.time(), items)
             except Exception:
                 pass
@@ -2647,8 +2718,11 @@ def categories_from_recognition(fast=False):
                 if isinstance(_it, dict):
                     _n = _it.get("name")
                     if _n and _n != "未覆盖":
-                        ctrl_info.setdefault(_n, {"size": _it.get("size"),
-                                                  "method": _it.get("method")})
+                        cur_info = ctrl_info.setdefault(_n, {})
+                        if _it.get("size") is not None and cur_info.get("size") is None:
+                            cur_info["size"] = _it.get("size")
+                        if _it.get("method") and not cur_info.get("method"):
+                            cur_info["method"] = _it.get("method")
                 elif _it and _it != "未覆盖":
                     ctrl_info.setdefault(_it, {})
         else:
@@ -3449,25 +3523,24 @@ def _call_bridge_impl(op: str, payload: dict | None = None, timeout: float | Non
     cmd_path = os.path.join(IPC_DIR, "cmd_%d.json" % pid)
     res_path = os.path.join(IPC_DIR, "result_%d.json" % pid)
 
-    with _ipc_lock:
-        # 清掉旧结果
-        try:
-            if os.path.isfile(res_path):
-                os.remove(res_path)
-        except Exception:
-            pass
-        _write_json(cmd_path, {"seq": seq, "op": op, "payload": payload or {}})
+    # 按实例独立文件队列，由外层 _PID_LOCKS[pid] 保证单实例串行，不再用全局锁互堵
+    try:
+        if os.path.isfile(res_path):
+            os.remove(res_path)
+    except Exception:
+        pass
+    _write_json(cmd_path, {"seq": seq, "op": op, "payload": payload or {}})
 
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            res = _read_json(res_path)
-            if res and res.get("seq") == seq:
-                try:
-                    os.remove(res_path)
-                except Exception:
-                    pass
-                return res
-            time.sleep(0.4)
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        res = _read_json(res_path)
+        if res and res.get("seq") == seq:
+            try:
+                os.remove(res_path)
+            except Exception:
+                pass
+            return res
+        time.sleep(0.4)
 
     return {
         "ok": False,
@@ -3537,6 +3610,50 @@ def call_bridge(op, payload=None, timeout=None, wait=None):
         _PID_LOCK_TS.pop(int(pid), None)
 
 
+_JOBS = {}
+_JOBS_LOCK = threading.Lock()
+
+
+def _prune_jobs_locked():
+    if len(_JOBS) <= 50:
+        return
+    ordered = sorted(_JOBS.items(), key=lambda kv: kv[1].get("created_at", 0))
+    for k, _ in ordered[:-50]:
+        if _JOBS[k].get("status") != "running":
+            _JOBS.pop(k, None)
+
+
+def _start_async_job(op, fn):
+    jid = uuid.uuid4().hex[:12]
+    job = {
+        "job_id": jid, "op": op, "status": "running",
+        "created_at": time.time(), "finished_at": None,
+        "result": None, "error": None,
+    }
+    with _JOBS_LOCK:
+        _JOBS[jid] = job
+        _prune_jobs_locked()
+
+    def _run():
+        try:
+            res = fn()
+            with _JOBS_LOCK:
+                job["result"] = res
+                job["status"] = "done" if (isinstance(res, dict) and res.get("ok")) else "error"
+                if isinstance(res, dict) and not res.get("ok"):
+                    job["error"] = res.get("error") or ""
+                job["finished_at"] = time.time()
+        except Exception:
+            with _JOBS_LOCK:
+                job["status"] = "error"
+                job["error"] = traceback.format_exc()
+                job["result"] = {"ok": False, "error": job["error"]}
+                job["finished_at"] = time.time()
+
+    threading.Thread(target=_run, daemon=True).start()
+    return jid
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MeshKitAI/1.0"
 
@@ -3581,6 +3698,26 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/api/ping":
                 return self._json({"ok": True, "bridge": bridge_alive(),
                                    "pid": os.getpid(), "time": time.strftime("%H:%M:%S")})
+
+            if path == "/api/job":
+                jid = (qs.get("id") or [""])[0].strip()
+                if not jid:
+                    with _JOBS_LOCK:
+                        items = [
+                            {k: v for k, v in j.items() if k != "result"}
+                            for j in sorted(_JOBS.values(),
+                                            key=lambda x: x.get("created_at", 0),
+                                            reverse=True)[:20]
+                        ]
+                    return self._json({"ok": True, "jobs": items})
+                with _JOBS_LOCK:
+                    job = _JOBS.get(jid)
+                    snap = dict(job) if job else None
+                if not snap:
+                    return self._json({"ok": False, "error": "任务不存在或已清理"}, 404)
+                snap["ok"] = True
+                snap["progress"] = _read_json(PROGRESS_PATH) or {}
+                return self._json(snap)
 
             if path == "/api/auto_scan":
                 if not bridge_alive():
@@ -3736,7 +3873,7 @@ class Handler(BaseHTTPRequestHandler):
                                       "source": "geometry"})
                     # 合并 Mesh 里的控制项类别（Geometry 分组丢失时也能读全）
                     try:
-                        _sc = {} if fast else call_bridge("scan_categories", timeout=90)
+                        _sc = call_bridge("scan_categories", timeout=90)
                         _have = set(c["name"] for c in _cats)
                         for _c in (_sc.get("categories") or []):
                             _n2 = _c.get("name")
@@ -4583,6 +4720,11 @@ tr:hover td{background:#141a22}
                         ok.remove(cat)
                     cfg["sweep_ok"] = ok
                     save_config(cfg)
+                    try:
+                        _flags_set("sweep_ok", ok)
+                        cache_invalidate()
+                    except Exception:
+                        pass
                 return self._json({"ok": True, "sweep_ok": ok})
 
             if path == "/api/hole_quality":
@@ -4629,6 +4771,12 @@ tr:hover td{background:#141a22}
                     cats.remove(cat)
                 cfg["hole_cats"] = cats
                 save_config(cfg)
+                try:
+                    _flags_set("hole_cats", cats)
+                    cache_invalidate()
+                    _warm_categories()
+                except Exception:
+                    pass
                 return self._json({"ok": True, "hole_cats": cats})
 
             if path == "/api/connect":
@@ -4787,6 +4935,8 @@ tr:hover td{background:#141a22}
                 sys.path.insert(0, APP_DIR)
                 import geo_recognize
                 geo_recognize.clear_overrides()
+                _ovr_save({})
+                cache_invalidate()
                 return self._json({"ok": True})
 
             if path == "/api/regroup":
@@ -4862,13 +5012,13 @@ tr:hover td{background:#141a22}
                     if rr.get("failed"):
                         out["errors"].extend(rr["failed"][:5])
             
-                    # 名字变了 → 重新扫描一次，保证分组用的是新名字
+                    # 名字变了 → 重新扫描一次，保证分组用的是新名字（list_bodies 只调一次）
                     try:
                         _sg2 = scan_groups()
                         if _sg2.get("groups"):
-                            groups = {g: [n for n in ns if n in
-                                          set(b.get("name") for b in
-                                              (call_bridge("list_bodies", timeout=300).get("bodies") or []))]
+                            _lb2 = call_bridge("list_bodies", timeout=300)
+                            _names2 = set(b.get("name") for b in (_lb2.get("bodies") or []))
+                            groups = {g: [n for n in ns if n in _names2]
                                       for g, ns in _sg2["groups"].items()}
                             groups = {g: ns for g, ns in groups.items() if ns}
                     except Exception:
@@ -4935,6 +5085,7 @@ tr:hover td{background:#141a22}
                 body = self._body()
                 op = body.get("op") or ""
                 payload = body.get("payload") or {}
+                is_async = bool(body.get("async"))
                 _ran_on = None
                 if op in MUTATING_OPS:
                     try:
@@ -4956,115 +5107,130 @@ tr:hover td{background:#141a22}
                 if not bridge_alive():
                     return self._json({"ok": False, "bridge_offline": True,
                                        "error": "桥接代理未运行（bridge_agent.py）"})
-                # apply：先把"类别->体"用 Geometry 分组翻译成 plan，再用可靠接口建控制项
-                if op == "apply":
-                    try:
-                        _sz = (payload or {}).get("sizes") or {}
-                        _mtd = (payload or {}).get("methods") or {}
-                        _div = (payload or {}).get("divisions") or {}
-                        if _sz or _mtd:
-                            _gg = call_bridge("geom_groups", timeout=180)
-                            _byg = {}
-                            for _g in (_gg.get("groups") or []):
-                                _byg[_g.get("name")] = _g.get("bodies") or []
-                            # 已有控制项的类别 -> 改原控制项；没有的 -> 才新建
-                            _existing = set()
-                            try:
-                                _rp = call_bridge("read_plan", timeout=120)
-                                if not _rp.get("ok"):
-                                    return self._json({
-                                        "ok": False, "busy": bool(_rp.get("busy")),
-                                        "error": "读不到现有控制项清单，已中止（避免建出重复/空控制项）：%s"
-                                                 % (_rp.get("error") or "")})
-                                for _c in (_rp.get("controls") or []):
-                                    _nm = (_c.get("name") or "").strip()
-                                    for _pre in ("SIZE_FIX_", "SIZE_",
-                                                 "METHOD_", "SWEEP_", "SHELL_"):
-                                        if _nm.startswith(_pre):
-                                            _nm = _nm[len(_pre):]
-                                            break
-                                    if _nm:
-                                        _existing.add(_nm)
-                            except Exception:
-                                pass
 
-                            _names = set(_sz.keys()) | set(_mtd.keys())
-                            _plan = []
-                            for _n in _names:
-                                if _n in _existing:
-                                    continue          # 已存在 -> 走 apply 修改
-                                _bs = _byg.get(_n) or []
-                                if not _bs:
-                                    continue
-                                _item = {"category": _n,
-                                         "bodies": _bs,
-                                         "size": _sz.get(_n),
-                                         "method": _mtd.get(_n) or "Automatic"}
-                                if _div.get(_n):
-                                    _item["divisions"] = _div.get(_n)
-                                _plan.append(_item)
-                            if _plan:
-                                _cr = call_bridge("controls_from_plan",
-                                                  {"plan": _plan}, timeout=3600)
-                                _payload2 = dict(payload or {})
-                                _payload2["sizes"] = dict((k, v) for k, v in _sz.items()
-                                                          if k in _existing)
-                                _payload2["methods"] = dict((k, v) for k, v in _mtd.items()
-                                                            if k in _existing)
-                                _res2 = call_bridge("apply", _payload2, timeout=600)
-                                _res2["plan_created"] = len(_cr.get("created") or [])
-                                _res2.setdefault("errors", [])
-                                _res2["errors"].extend((_cr.get("errors") or [])[:5])
-                                _res2["sizes"] = list(_sz.keys())
-                                _res2["saved"] = safe_save("apply")
-                                return self._json(_res2)
-                    except Exception as _e:
-                        pass
+                def _run_op_sync():
+                    # apply：先把"类别->体"用 Geometry 分组翻译成 plan，再用可靠接口建控制项
+                    if op == "apply":
+                        try:
+                            _sz = (payload or {}).get("sizes") or {}
+                            _mtd = (payload or {}).get("methods") or {}
+                            _div = (payload or {}).get("divisions") or {}
+                            if _sz or _mtd:
+                                _gg = call_bridge("geom_groups", timeout=180)
+                                _byg = {}
+                                for _g in (_gg.get("groups") or []):
+                                    _byg[_g.get("name")] = _g.get("bodies") or []
+                                # 已有控制项的类别 -> 改原控制项；没有的 -> 才新建
+                                _existing = set()
+                                try:
+                                    _rp = call_bridge("read_plan", timeout=120)
+                                    if not _rp.get("ok"):
+                                        return {
+                                            "ok": False, "busy": bool(_rp.get("busy")),
+                                            "error": "读不到现有控制项清单，已中止（避免建出重复/空控制项）：%s"
+                                                     % (_rp.get("error") or "")}
+                                    for _c in (_rp.get("controls") or []):
+                                        _nm = (_c.get("name") or "").strip()
+                                        for _pre in ("SIZE_FIX_", "SIZE_",
+                                                     "METHOD_", "SWEEP_", "SHELL_"):
+                                            if _nm.startswith(_pre):
+                                                _nm = _nm[len(_pre):]
+                                                break
+                                        if _nm:
+                                            _existing.add(_nm)
+                                except Exception:
+                                    pass
 
-                # mesh 之前先记下"当前失败集合"（用来对比效果）
-                if op == "mesh":
+                                _names = set(_sz.keys()) | set(_mtd.keys())
+                                _plan = []
+                                for _n in _names:
+                                    if _n in _existing:
+                                        continue          # 已存在 -> 走 apply 修改
+                                    _bs = _byg.get(_n) or []
+                                    if not _bs:
+                                        continue
+                                    _item = {"category": _n,
+                                             "bodies": _bs,
+                                             "size": _sz.get(_n),
+                                             "method": _mtd.get(_n) or "Automatic"}
+                                    if _div.get(_n):
+                                        _item["divisions"] = _div.get(_n)
+                                    _plan.append(_item)
+                                if _plan:
+                                    _cr = call_bridge("controls_from_plan",
+                                                      {"plan": _plan}, timeout=3600)
+                                    _payload2 = dict(payload or {})
+                                    _payload2["sizes"] = dict((k, v) for k, v in _sz.items()
+                                                              if k in _existing)
+                                    _payload2["methods"] = dict((k, v) for k, v in _mtd.items()
+                                                                if k in _existing)
+                                    _res2 = call_bridge("apply", _payload2, timeout=600)
+                                    _res2["plan_created"] = len(_cr.get("created") or [])
+                                    _res2.setdefault("settings", [])
+                                    _res2.setdefault("errors", [])
+                                    _res2["errors"].extend((_cr.get("errors") or [])[:5])
+                                    _res2["sizes"] = list(_sz.keys())
+                                    _res2["saved"] = safe_save("apply")
+                                    if _ran_on and isinstance(_res2, dict):
+                                        _res2["ran_on"] = _ran_on
+                                    try:
+                                        cache_invalidate()
+                                    except Exception:
+                                        pass
+                                    return _res2
+                        except Exception:
+                            pass
+
+                    # mesh 之前先记下"当前失败集合"（用来对比效果）
+                    if op == "mesh":
+                        try:
+                            st0 = call_bridge("status", timeout=20)
+                            _remember_failed(st0)
+                        except Exception:
+                            pass
+
+                    res = call_bridge(op, payload)
+
+                    # 记住这次应用的动作（供经验库归因）
+                    if op == "apply" and res.get("ok"):
+                        try:
+                            favorite_bump_uses(payload.get("sizes") or {},
+                                               payload.get("methods") or {})
+                        except Exception:
+                            pass
+                        act = {"type": "apply"}
+                        if payload.get("sizes"):
+                            act["sizes"] = payload.get("sizes")
+                        if payload.get("methods"):
+                            act["methods"] = payload.get("methods")
+                        if payload.get("settings"):
+                            act["settings"] = payload.get("settings")
+                        _EXP["last_action"] = act
+                        _EXP["last_action_ts"] = time.time()
+
+                    # mesh 之后：对比并记录经验
+                    if op == "mesh" and res.get("ok"):
+                        try:
+                            new_failed = [b.get("name") for b in (res.get("failed_bodies") or [])]
+                            info = _record_mesh_experience(new_failed)
+                            res["experience"] = info
+                            _EXP["failed_before"] = set(new_failed)
+                        except Exception:
+                            pass
+                    if _ran_on and isinstance(res, dict):
+                        res["ran_on"] = _ran_on
                     try:
-                        st0 = call_bridge("status", timeout=20)
-                        _remember_failed(st0)
+                        if op in MUTATING_OPS or op in ("mesh", "apply", "fix_failed"):
+                            cache_invalidate()
                     except Exception:
                         pass
+                    return res
 
-                res = call_bridge(op, payload)
-
-                # 记住这次应用的动作（供经验库归因）
-                if op == "apply" and res.get("ok"):
-                    try:
-                        favorite_bump_uses(payload.get("sizes") or {},
-                                           payload.get("methods") or {})
-                    except Exception:
-                        pass
-                    act = {"type": "apply"}
-                    if payload.get("sizes"):
-                        act["sizes"] = payload.get("sizes")
-                    if payload.get("methods"):
-                        act["methods"] = payload.get("methods")
-                    if payload.get("settings"):
-                        act["settings"] = payload.get("settings")
-                    _EXP["last_action"] = act
-                    _EXP["last_action_ts"] = time.time()
-
-                # mesh 之后：对比并记录经验
-                if op == "mesh" and res.get("ok"):
-                    try:
-                        new_failed = [b.get("name") for b in (res.get("failed_bodies") or [])]
-                        info = _record_mesh_experience(new_failed)
-                        res["experience"] = info
-                        _EXP["failed_before"] = set(new_failed)
-                    except Exception:
-                        pass
-                if _ran_on and isinstance(res, dict):
-                    res["ran_on"] = _ran_on
-                try:
-                    if op in MUTATING_OPS or op in ("mesh", "apply", "fix_failed"):
-                        cache_invalidate()
-                except Exception:
-                    pass
-                return self._json(res)
+                if is_async:
+                    jid = _start_async_job(op, _run_op_sync)
+                    return self._json({"ok": True, "async": True, "job_id": jid,
+                                       "op": op, "status": "running"})
+                return self._json(_run_op_sync())
 
             if path == "/api/kb/capture":
                 body = self._body()
@@ -5109,10 +5275,10 @@ tr:hover td{background:#141a22}
                 on = bool(body.get("thin"))
                 cfg = load_config()
                 d, _ok = _flags_load()
-                cats = list(d.get("thin_cats") or
-                            _flags_get(cfg, "thin_cats"))
-                off = list(d.get("thin_off") or
-                           _flags_get(cfg, "thin_off"))
+                cats = list(d["thin_cats"] if "thin_cats" in d
+                            else _flags_get(cfg, "thin_cats"))
+                off = list(d["thin_off"] if "thin_off" in d
+                           else _flags_get(cfg, "thin_off"))
                 methods = cfg.setdefault("methods", {})
                 divs = cfg.setdefault("thin_divisions", {})
                 if on:
@@ -5155,6 +5321,10 @@ tr:hover td{background:#141a22}
                     cfg["advanced"] = {}
                     save_config(cfg)
                     res["config_reset"] = True
+                    try:
+                        cache_invalidate()
+                    except Exception:
+                        pass
                 return self._json(res)
 
             if path == "/api/ai":
@@ -5198,11 +5368,17 @@ tr:hover td{background:#141a22}
                 return self._json(call_bridge("fix_body", body, timeout=300))
 
             if path == "/api/config":
+                body = self._body()
                 cfg = load_config()
-                cfg.update({k: v for k, v in body.items() if k in ("sizes", "settings", "budget_nodes")})
+                cfg.update({k: v for k, v in body.items()
+                            if k in ("sizes", "methods", "settings", "budget_nodes")})
                 if "llm" in body and isinstance(body["llm"], dict):
                     cfg["llm"].update(body["llm"])
                 save_config(cfg)
+                try:
+                    cache_invalidate()
+                except Exception:
+                    pass
                 return self._json({"ok": True, "config": cfg})
 
             return self._json({"ok": False, "error": "not found"}, 404)

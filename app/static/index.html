@@ -403,7 +403,8 @@ async function forceUnbusy(){
 
 function setBusy(on, label){
   BUSY = on;
-  ['btnMesh','btnFix','btnQuality','btnApply','btnFailList','btnScanCat'].forEach(id => {
+  // 仅禁用会与当前写操作冲突的按钮，保留刷新/只读查看/停止能力
+  ['btnMesh','btnFix','btnApply','btnClearAll','btnDedupeCtl'].forEach(id => {
     const el = $(id); if(el) el.disabled = on;
   });
   const st = $('btnStop'); if(st) st.hidden = !on;
@@ -416,6 +417,30 @@ function setBusy(on, label){
     stopProgressPoll();
     _stopWatchdog();
     const pt = $('progText'); if(pt) pt.textContent = '';
+  }
+}
+
+/* 异步任务执行：POST /api/op (async:true) 立即返回 job_id，前端轮询 /api/job */
+async function runOpAsync(op, payload){
+  const start = await api('/api/op', {
+    method:'POST',
+    _timeoutMs: 30000,
+    body: JSON.stringify({op: op, payload: payload || {}, async: true})
+  });
+  if(!start || !start.ok || !start.job_id) return start || {ok:false, error:'任务提交失败'};
+  const jid = start.job_id;
+  while(true){
+    await new Promise(res => setTimeout(res, 1200));
+    if(!BUSY) return {ok:false, cancelled:true, error:'已手动解除等待（后台可能仍在执行）'};
+    let j = null;
+    try{ j = await api('/api/job?id=' + encodeURIComponent(jid), {_timeoutMs: 10000}); }
+    catch(e){ j = null; }
+    if(!j || !j.ok){
+      if(j && j.timeout) continue;
+      return j || {ok:false, error:'轮询任务状态失败'};
+    }
+    if(j.status === 'running') continue;
+    return j.result || {ok: j.status === 'done', error: j.error || ''};
   }
 }
 
@@ -501,6 +526,7 @@ function INSTANCES_TARGET_LABEL(){
   return t ? (t.project || ('PID ' + t.pid)) : '未选择';
 }
 const fmt = n => (n||0).toLocaleString('en-US');
+const fmtNum = (n, d = 3) => (n === null || n === undefined || isNaN(Number(n))) ? '—' : Number(n).toFixed(d);
 
 /* ---------------- 状态 ---------------- */
 let _refreshBusy = false;
@@ -769,9 +795,7 @@ async function applyOne(cat){
   if(isNaN(size)){ toast('请先填尺寸'); return; }
   setBusy(true, `应用「${cat}」`);
   try{
-    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
-      op:'apply', payload:{sizes:{[cat]: size}, methods:{[cat]: method}}
-    })});
+    const r = await runOpAsync('apply', {sizes:{[cat]: size}, methods:{[cat]: method}});
     if(r.ok){
       const created = (r.created||[]).length ? `，新建 ${r.created.length} 个控制项` : '';
       log(`已应用「${cat}」：尺寸 ${size} mm，方法 ${method}${created}`);
@@ -1306,7 +1330,7 @@ async function applyScan(){
   if(!confirm('将按扫描结果：\n1) 重命名 Geometry 中的体（组名_01…）\n2) 建立分组的尺寸控制项\n继续？')) return;
   setBusy(true, '重命名 + 分组');
   try{
-    const r = await api('/api/scan_apply', {method:'POST', body: JSON.stringify(
+    const r = await api('/api/scan_apply', {_timeoutMs: 600000, method:'POST', body: JSON.stringify(
       {rename: true, geom_group: true, group: false, profile: SCAN.profile})});
     if(r.ok){
       log(`重命名 ${r.renamed} 个体，建立 ${r.controls} 个分组控制项`);
@@ -1485,8 +1509,7 @@ async function applyAllFailed(alsoMesh){
 
   setBusy(true, alsoMesh ? '批量设置修复尺寸并重划' : '批量设置修复尺寸');
   try{
-    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
-      op:'set_bodies_size', payload:{items: items, regenerate: !!alsoMesh}})});
+    const r = await runOpAsync('set_bodies_size', {items: items, regenerate: !!alsoMesh});
     const done = (r.results||[]).filter(x=>x.ok).length;
     log(`批量设置：成功 ${done}/${items.length}`);
     (r.results||[]).filter(x=>!x.ok).slice(0,5).forEach(x =>
@@ -2020,6 +2043,7 @@ async function clearAll(){
 let _catBusy = false;
 async function loadCategories(){
   if(_catBusy) return;   // 不叠加
+  _catBusy = true;
   /*
    * 拿到类别后核对：数据来自哪个实例？与当前目标不一致就告警，
    * 避免"操作 2000c4 却看到测试版的列表"。
@@ -2107,15 +2131,15 @@ async function applyAll(){
       const cat = (LAST_CATS || []).find(c => c.name === k) || {};
       if(_methods[k] === 'Sweep' && (cat.is_thin_cat || (CFG.thin_cats || []).indexOf(k) >= 0)) _divs[k] = 2;
     });
-    const r = await api('/api/op', {_timeoutMs: 1200000, method:'POST', body: JSON.stringify({
-      op:'apply', payload:{settings: readSettingsFromUI(),
-                           sizes: _sizes,
-                           methods: _methods,
-                           divisions: _divs}
-    })});
+    const r = await runOpAsync('apply', {
+      settings: readSettingsFromUI(),
+      sizes: _sizes,
+      methods: _methods,
+      divisions: _divs
+    });
     if(!r.ok){ log('应用失败：' + (r.error||'')); toast('应用失败'); }
     else{
-      log(`已应用：设置 ${r.settings.length} 项，尺寸 ${r.sizes.length} 项`);
+      log(`已应用：设置 ${(r.settings||[]).length} 项，尺寸 ${(r.sizes||[]).length} 项`);
       const m = r.methods || {};
       if(m.created && m.created.length) log('新建方法控制项：' + m.created.join('、'));
       if(m.updated && m.updated.length) log('更新方法控制项：' + m.updated.join('、'));
@@ -2193,8 +2217,7 @@ async function generateMesh(){
   setBusy(true, '生成网格（可能需要几分钟，请勿操作 Mechanical）');
   try{
     const clearFirst = !!($('chkClearMesh') && $('chkClearMesh').checked);
-  const r = await api('/api/op', {_timeoutMs: 3600000, method:'POST', body: JSON.stringify(
-    {op:'mesh', payload:{clear: clearFirst}})});
+    const r = await runOpAsync('mesh', {clear: clearFirst});
     if(r.ok){
       log(`网格完成：单元 ${fmt(r.elements)} / 节点 ${fmt(r.nodes)}（${r.seconds}s）`);
       const failed = (r.failed_bodies||[]).length;
@@ -2204,7 +2227,6 @@ async function generateMesh(){
       log('网格失败：' + (r.error||'')); toast('网格生成失败');
     }
   }catch(e){ log('网格异常：'+e); }
-  stopProgressWatch();
   setBusy(false); refresh(); loadFailed(); loadErrorLog(); analyzeMeshRun();
 }
 
@@ -2261,9 +2283,7 @@ async function fixFailed(){
   if(!confirm('将自动把失败体从 Sweep 摘出并减半尺寸，重划最多 2 轮。继续？')) return;
   setBusy(true, '自动修复失败体');
   try{
-    const r = await api('/api/op', {method:'POST', body: JSON.stringify({
-      op:'fix_failed', payload:{rounds:2, floor_mm:2}
-    })});
+    const r = await runOpAsync('fix_failed', {rounds:2, floor_mm:2});
     (r.rounds_log||[]).forEach(l => log(l));
     log(`修复结束：单元 ${fmt(r.elements)} / 节点 ${fmt(r.nodes)}，仍失败 ${(r.still_failed||[]).length} 个`);
     toast(r.ok ? '全部修复成功' : '仍有失败体，见日志');
@@ -2274,7 +2294,7 @@ async function fixFailed(){
 async function runHoleQuality(){
   setBusy(true, '圆孔区域质量分析');
   try{
-    const r = await api('/api/hole_quality', {method:'POST', body: JSON.stringify({force: true})});
+    const r = await api('/api/hole_quality', {_timeoutMs: 300000, method:'POST', body: JSON.stringify({force: true})});
     const d = (r && r.data) || {};
     if(!r.ok){ log('圆孔质量失败：' + (r.error||'')); toast('失败'); setBusy(false); return; }
     if(d.error){ log('圆孔质量：' + d.error); toast(d.error); setBusy(false); return; }
@@ -2291,7 +2311,7 @@ async function runHoleQuality(){
 async function qualityReport(){
   setBusy(true, '生成质量报告');
   try{
-    const r = await api('/api/op', {method:'POST', body: JSON.stringify({op:'quality'})});
+    const r = await runOpAsync('quality', {});
     if(r.ok){
       $('reportCard').hidden = false;
       $('reportText').value = r.report || '';
@@ -2353,6 +2373,7 @@ $('btnMemSave').onclick = saveMemory;
 $('btnMemCapture').onclick = capturePlan;
 $('btnScale').onclick = scaleAllSizes;
 $('btnApply').onclick = applyAll;
+const _bdc = $('btnDedupeCtl'); if(_bdc) _bdc.onclick = dedupeControls;
 $('btnMesh').onclick = generateMesh;
 $('btnFix').onclick = fixFailed;
 $('btnQuality').onclick = () => { window.open('/report', '_blank'); };

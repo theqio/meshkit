@@ -73,3 +73,6 @@ app/reload_result.json
 # æŠ¥å‘Šï¼šä»…ä¿ç•™è¯´æ˜æ€§æ–‡æ¡£
 reports/*.md
 !reports/é”™è¯¯è®°å½•_*.md
+
+# ·ÖÄ£ĞÍÅäÖÃ£¨Ã¿Ì¨»úÆ÷/Ã¿¸öÄ£ĞÍ¸÷×Ô£©
+app/model_config__*.json

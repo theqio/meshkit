@@ -115,10 +115,10 @@ app/check_ui.py          前端自检
 
 | # | 问题 | 位置 | 建议 |
 |---|---|---|---|
-| 1 | `apply`（应用设置与尺寸）耗时 60~140 秒 | `server.py` apply 分支 + 代理 `op_apply/_apply_methods` | 只更新与当前值不同的控制项；批量写属性；把 scan 结果复用 |
-| 2 | 长操作期间页面按钮禁用，只能等 | `index.html` `setBusy()` | 改成异步任务：`POST /api/op` 立即返回 job id，页面轮询 `/api/job` |
+| 1 | ~~`apply` 耗时 60~140 秒~~ **已优化**：设置/尺寸/方法改为差异写入，只改有变化的项 | `server.py` apply 分支 + 代理 `op_apply/_apply_methods` | 只更新与当前值不同的控制项；批量写属性；把 scan 结果复用 |
+| 2 | ~~长操作期间页面只能等~~ **已改**：`/api/op` 支持 `async:true` → 立即返回 `job_id`，页面轮询 `/api/job` | `index.html` `setBusy()` | 改成异步任务：`POST /api/op` 立即返回 job id，页面轮询 `/api/job` |
 | 3 | 代理自载偶尔失败（旧定时器被停） | `app/reload_self.py` | 已改为不停定时器；可增加"重载后 3 秒内 ping 校验失败则回滚" |
-| 4 | `config.json` 里的 `sizes/methods/thin_cats` 仍是**全局**（跨模型共享） | `server.py` `load_config()` | 参照 `group_overrides__<model>.json`、`model_flags__<model>.json` 做成分模型 |
+| 4 | ~~尺寸/方法全局共享~~ **已改**：`model_config__<模型>.json` 存 sizes/methods/settings/advanced，全局文件不再保留 | `server.py` `load_config()` | 参照 `group_overrides__<model>.json`、`model_flags__<model>.json` 做成分模型 |
 | 5 | 薄板判定偏几何阈值，个别类别（波纹板 45mm 厚）判不出来 | `server.py` `_plate` 判定、`geo_recognize` | 引入"壁厚/面积"组合判据，或允许每模型保存判据阈值 |
 | 6 | `server.py` 单文件过大（约 5270 行） | `server.py` | 拆分：`http_routes.py` / `bridge_io.py` / `recognition_service.py` / `report.py` |
 | 7 | 前端 `index.html` 单文件约 2440 行 | `index.html` | 拆成模块（原生 ES module 即可，不要引入打包器） |
@@ -175,3 +175,17 @@ app/check_ui.py          前端自检
 - 代理版本 `2026-12-02.11`（可移植路径版）
 - 已修：重复控制项、失败体未从类别控制项摘除、薄板层数未写入、目标实例被抢、页面卡死
 - 待修：见第 5 节
+
+---
+
+## 11. 外部审阅已合并（2026-11-25）
+
+Antigravity 提交 `033deca` 已合并（本地 `review/antigravity-p0` → main），内容：
+
+- `apply` 差异写入（设置/尺寸/方法只改变更项）+ 无变更不重划
+- 异步任务通道 `/api/job`（apply / mesh / fix_failed / set_bodies_size）
+- 分模型配置 `model_config__<model>.json`（sizes/methods/settings/advanced）
+- `_call_bridge_impl` 去掉全局 `_ipc_lock`（改为按实例锁；`call_bridge_pid` 也已加同一把锁）
+- `geo_recognize`：上梁仅限梁体；`remap_overrides` 不再遍历中改字典
+- `check_ui.py` 路径改为相对
+- 代理 `2026-12-02.12`：`_keep/_busy/_hb` 重载保持幂等；方法/尺寸差异更新；`fix_failed` 无变化不重划
