@@ -184,3 +184,55 @@ python app\check_pipeline.py  :: 期望「全部检查通过」
 | 页面全红/全灰 | 控制项校验拿不到（Mechanical 忙） | 等 3 秒自动重试；或点「解除卡住」 |
 | 点应用半天没反应 | 代理旧版（无差异写入） | 确认 ping 版本为 `2026-12-02.12+`，否则 Ctrl+F5 |
 | Mechanical 闪退 | 同一窗口重复执行代理 → 多个定时器 | 只执行一次；新版入口已幂等 |
+
+---
+
+## 九、亿赛通（DLP）加密：必须走"明文副本"流程
+
+**问题**：项目目录 `D:\ai\meshkit` 里的文件在磁盘上是**密文**，只有白名单进程（Python）能透明解密。
+Antigravity / VS Code 等外部编辑器直接打开会是乱码。
+
+**实测**
+
+```
+cmd type D:\ai\meshkit\app\geo_recognize.py   → 乱码（Esafenet 头）
+python 读同一文件                                  → 明文
+%TEMP% 目录                                       → 不加密，任何程序都是明文
+```
+
+### 流程（三步）
+
+```bat
+:: 1) 导出明文副本到临时目录（不加密区）
+python D:\ai\meshkit\app\tools\dlp_bridge.py export
+::    默认导出到 %TEMP%\meshkit_work
+
+:: 2) 让 Antigravity 打开并修改这个目录
+::    C:\Users\<你>\AppData\Local\Temp\meshkit_work
+::    （只改 .py / .html / .md / .json，不要碰 ipc、config.json）
+
+:: 3) 改完导回项目（由 Python 写回，内容正确）
+python D:\ai\meshkit\app\tools\dlp_bridge.py import
+```
+
+可选自检（确认导出副本能被外部程序读取）：
+
+```bat
+python D:\ai\meshkit\app\tools\dlp_bridge.py status
+:: 期望：明文 N 个 / 疑似密文 0 个 → 可用
+```
+
+### 给 Antigravity 的补充要求
+
+```
+不要读写 D:\ai\meshkit（亿赛通加密，你读到的是乱码）。
+请只在 C:\Users\qiyuqiang\AppData\Local\Temp\meshkit_work 里修改代码。
+改完只报告改动文件清单，不要自己拷回；由 Python 脚本 import 回项目。
+该目录下 .git 与 reports/ 已剔除，不要尝试 git 操作。
+```
+
+### 已知限制
+
+- `reports/`、`app/ipc/`、`config.json`、`model_config__*.json`、`model_flags__*.json` **不导出**（运行时数据/含密钥）
+- 导入时只覆盖"导出清单里已存在"的文件，以及副本里**新增**的文件
+- 导出副本不含 `.git`，因此在那里不能提交；提交仍在 `D:\ai\meshkit` 由我执行
