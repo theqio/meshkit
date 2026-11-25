@@ -153,6 +153,9 @@ def save_config(cfg: dict) -> None:
                 gcfg = json.load(f) or {}
         except Exception:
             gcfg = {}
+    # 全局文件里不再保留模型级字段（避免新模型继承上一个模型的尺寸/方法）
+    for _k in _MODEL_CFG_KEYS:
+        gcfg.pop(_k, None)
     for k, v in cfg.items():
         if k in _MODEL_CFG_KEYS:
             continue
@@ -1257,9 +1260,24 @@ _INST_CACHE = {}
 
 
 def call_bridge_pid(pid, op, payload=None, timeout=30):
-    """直接向指定 pid 的代理下命令（不改当前目标）"""
+    """直接向指定 pid 的代理下命令（不改当前目标）
+       与 call_bridge 共用同一把按实例锁，避免两条命令抢同一个 cmd_<pid>.json
+    """
     pid = int(pid)
     os.makedirs(IPC_DIR, exist_ok=True)
+    _lk = _pid_lock(pid)
+    if not _lk.acquire(timeout=min(timeout, 15)):
+        return {"ok": False, "busy": True, "error": "该实例正在忙"}
+    try:
+        return _call_bridge_pid_locked(pid, op, payload, timeout)
+    finally:
+        try:
+            _lk.release()
+        except Exception:
+            pass
+
+
+def _call_bridge_pid_locked(pid, op, payload=None, timeout=30):
     seq = uuid.uuid4().hex[:12]
     cmd_path = os.path.join(IPC_DIR, "cmd_%d.json" % pid)
     res_path = os.path.join(IPC_DIR, "result_%d.json" % pid)
