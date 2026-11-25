@@ -74,7 +74,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 # ROOT 已在文件开头自动定位
-AGENT_VERSION = u"2026-12-02.13"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.14"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -1318,7 +1318,7 @@ def op_mesh_messages(payload):
         if since > 0 and ts:
             try:
                 _t = _dt.datetime.strptime(ts.strip(), "%Y/%m/%d %H:%M:%S")
-                if _t.timestamp() < since - 5:
+                if time.mktime(_t.timetuple()) < since - 5:
                     out["skipped_old"] += 1
                     continue
             except Exception:
@@ -3373,6 +3373,7 @@ def op_fix_failed(payload):
             pass
         try:
             _mesh().GenerateMesh()
+            _touch_mesh()
         except Exception:
             log.append(u"  GenerateMesh 异常: %s" % _tail(traceback.format_exc(), 300))
 
@@ -4780,6 +4781,9 @@ def op_failed_detail(payload):
         msgs = []
     _st = _stamp_read()
     _start_ts = float(_st.get("mesh_start_ts") or 0)
+    _mesh_ts = float(_st.get("mesh_ts") or 0)
+    _ctrl_ts = float(_st.get("ctrl_ts") or 0)
+    body_name_set = set(x["name"] for x in bodies)
     for m in msgs:
         try:
             text = _txt(_safe(m, "DisplayString", u""))
@@ -4787,17 +4791,24 @@ def op_failed_detail(payload):
             ts = _txt(_safe(m, "TimeStamp", u""))
         except Exception:
             continue
-        # 只采信本次网格之后的失败消息（避免旧消息造成误判）
+        # 只采信本次网格之后的失败消息（IronPython 2.7 用 time.mktime，不能用 datetime.timestamp）
         if _start_ts > 0 and ts:
             try:
                 import datetime as _dt
                 _t = _dt.datetime.strptime(ts.strip(), "%Y/%m/%d %H:%M:%S")
-                if _t.timestamp() < _start_ts - 5:
+                if time.mktime(_t.timetuple()) < _start_ts - 5:
                     continue
             except Exception:
                 pass
         low = text.lower()
-        is_fail = (sev.lower() == u"error") or (u"fail" in low) or (u"无法" in text)
+        is_fail = (
+            (sev.lower() == u"error")
+            or (u"fail" in low)
+            or (u"could not be generated" in low)
+            or (u"cannot be meshed" in low)
+            or (u"unsuitable for thin model sweeping" in low)
+            or (u"无法" in text)
+        )
         src_obj = None
         try:
             src_obj = _safe(m, "Source")
@@ -4813,8 +4824,28 @@ def op_failed_detail(payload):
             msgs_info.append({"text": text[:120], "severity": sev,
                               "source": sname, "time": ts})
             if sname and (u"Body" in _txt(src_obj.GetType().Name if src_obj is not None else u"")
-                          or sname in set(x["name"] for x in bodies)):
+                          or sname in body_name_set):
                 failed_names.add(sname)
+
+    try:
+        els = int(_safe(_mesh(), "Elements", 0))
+    except Exception:
+        els = 0
+
+    # 关键：刚完成划网（mesh_ts >= ctrl_ts）或存在 Mesh 级失败消息且未在划网后再改控制项时，
+    # Mechanical 常把多个失败体合并到一条 Mesh 级 Error 中而不逐体报 Source；
+    # 此时所有非 Meshed 体都是真正的失败体，不能误判为"粉色过期"！
+    ctrl_modified_after_mesh = (_ctrl_ts > 0 and _mesh_ts > 0 and _ctrl_ts > _mesh_ts + 1.0)
+    has_mesh_level_err = any(
+        (mi.get("source") == u"Mesh")
+        or (u"could not be generated" in (mi.get("text") or u"").lower())
+        for mi in msgs_info
+    )
+    treat_unmeshed_as_failed = (
+        els > 0
+        and (not ctrl_modified_after_mesh)
+        and ((_mesh_ts > 0 and _mesh_ts >= _ctrl_ts) or has_mesh_level_err)
+    )
 
     # ---- 3) 组织输出 ----
     out = []
@@ -4865,14 +4896,14 @@ def op_failed_detail(payload):
             if has_fix:
                 out.append(row)          # 历史记录：已成功，绿灯
             continue
-        if name in failed_names:
+        if name in failed_names or treat_unmeshed_as_failed:
             out.append(row)              # 黄色：真失败
         else:
-            pink.append(row)             # 粉色：过期，不列入失败
+            pink.append(row)             # 粉色：改控制项后过期，不列入失败
 
     # 回退：有失败消息但没指向具体体时，非 Meshed 全部当失败（标注 uncertain）
     uncertain = False
-    if not failed_names and msgs_info:
+    if not failed_names and msgs_info and not treat_unmeshed_as_failed:
         uncertain = True
         out2 = []
         for item in bodies:
@@ -4888,10 +4919,6 @@ def op_failed_detail(payload):
             pink = []
 
     out.sort(key=lambda d: d["name"])
-    try:
-        els = int(_safe(_mesh(), "Elements", 0))
-    except Exception:
-        els = 0
     return {"ok": True, "count": len(out), "bodies": out,
             "raw_count": len(out) + len(pink),
             "pink_count": len(pink),

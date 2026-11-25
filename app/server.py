@@ -61,7 +61,7 @@ PROGRESS_PATH = os.path.join(IPC_DIR, "progress.json")
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("MESHKIT_PORT", "8765"))
-APP_VERSION = "2026-12-02.13"
+APP_VERSION = "2026-12-02.14"
 
 
 def _expected_agent_version() -> str:
@@ -3766,10 +3766,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._static(path[len("/static/"):])
 
             if path == "/api/ping":
+                _exp = _expected_agent_version()
                 return self._json({"ok": True, "bridge": bridge_alive(),
                                    "pid": os.getpid(), "time": time.strftime("%H:%M:%S"),
-                                   "version": APP_VERSION,
-                                   "expected_agent_version": _expected_agent_version()})
+                                   "version": _exp or APP_VERSION,
+                                   "expected_agent_version": _exp})
 
             if path == "/api/job":
                 jid = (qs.get("id") or [""])[0].strip()

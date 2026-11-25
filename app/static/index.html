@@ -54,9 +54,11 @@
   td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
   .size-input{width:70px}
   #catTable{overflow-x:auto}
-  #catTable table{min-width:600px;table-layout:auto}
-  #catTable td:first-child,#catTable th:first-child{white-space:nowrap;max-width:200px;
-    overflow:hidden;text-overflow:ellipsis}
+  #catTable table{width:100%;table-layout:auto}
+  #catTable td:first-child,#catTable th:first-child{max-width:190px}
+  #catTable .cat-name{display:flex;align-items:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:500}
+  #catTable .cat-tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px;padding-left:14px}
+  #catTable .cat-tags .badge{margin-left:0;font-size:10px;padding:1px 5px}
   #catTable td.num,#catTable th.num{white-space:nowrap}
   #expList{overflow:auto}
   #expList table{min-width:520px}
@@ -537,7 +539,8 @@ let _APP_VER = '', _EXP_AGENT_VER = '', _CUR_AGENT_VER = '';
 function renderVersionBadge(){
   const el = $('appVer');
   if(!el) return;
-  const appV = _APP_VER || _EXP_AGENT_VER || '';
+  // 版本以"文件里的最新版本"为准，避免服务未重启时显示旧版本
+  const appV = _EXP_AGENT_VER || _APP_VER || '';
   const expV = _EXP_AGENT_VER || appV;
   const agV = _CUR_AGENT_VER || '';
   if(!appV && !agV){
@@ -724,6 +727,7 @@ function renderCategories(cats, methodsAvailable){
     const allSup = !!c.is_all_suppressed;
     if(allSup) badges.push(`<span class="badge" style="opacity:.6"
         title="该类别所有体都被抑制（不参与网格划分），应用时会跳过">已抑制</span>`);
+    if(c.size_is_default) badges.push('<span class="badge warn" title="控制项未设尺寸，跟随全局">未设</span>');
     const locked = !!c.is_locked || allSup;
     const disAttr = locked ? 'disabled' : '';
     const light = c.light || 'red';
@@ -731,33 +735,35 @@ function renderCategories(cats, methodsAvailable){
     const lightTitle = (c.light_reason || '').replace(/"/g, '');
     const dot = `<span title="${lightTitle}" style="display:inline-block;width:9px;height:9px;
       border-radius:50%;background:${lightColor};box-shadow:0 0 6px ${lightColor};
-      margin-right:5px;vertical-align:middle"></span>`;
+      margin-right:5px;flex:0 0 auto"></span>`;
     const tip = c.size_basis
       ? `title="推荐 ${recVal} mm：${c.size_basis}"`
       : (recVal ? `title="推荐 ${recVal} mm"` : '');
     const sel = opts.map(o =>
       `<option value="${o}"${(c.method||'Automatic')===o?' selected':''}>${label[o]||o}</option>`).join('');
     return `<tr>
-      <td>${dot}${c.name}${badges.join('')}${c.size_is_default
-        ? '<span class="badge warn" title="控制项未设尺寸，跟随全局">未设</span>' : ''}</td>
+      <td>
+        <div class="cat-name" title="${c.name}">${dot}<span style="overflow:hidden;text-overflow:ellipsis">${c.name}</span></div>
+        <div class="cat-tags">${badges.join('')}</div>
+      </td>
       <td class="num muted">${c.bodies}</td>
       <td class="num"><input type="number" class="size-input" data-cat="${c.name}" ${disAttr}
          step="0.5" min="1" max="200" value="${c.size_is_default ? '' : sizeVal}"
          placeholder="${c.size_is_default ? '未设' : recVal}"
          title="${c.size_is_default ? '该控制项还没设尺寸，会跟随全局；填数字点应用即写入' : (c.size_basis||'').replace(/"/g,'')}"
-         style="width:78px;text-align:right;font-variant-numeric:tabular-nums"></td>
-      <td class="num" style="color:${recVal?'#9fd2ff':'var(--dim)'};font-size:12.5px;
-          min-width:64px;white-space:nowrap"
+         style="width:58px;text-align:right;font-variant-numeric:tabular-nums;padding:4px 5px"></td>
+      <td class="num" style="color:${recVal?'#9fd2ff':'var(--dim)'};font-size:12px;
+          white-space:nowrap"
           title="${(c.size_basis||'').replace(/"/g,'')}">${recVal || '—'}</td>
       <td><select class="method-sel" data-cat="${c.name}" ${disAttr}
           onchange="onMethodChange('${c.name}', this.value)"
          style="background:var(--panel2);border:1px solid var(--line);color:var(--fg);
-                border-radius:6px;padding:4px 6px;font-size:12.5px">${sel}</select></td>
-      <td><button class="btn" style="padding:2px 7px;font-size:12px" ${disAttr}
+                border-radius:6px;padding:3px 4px;font-size:12px;max-width:74px">${sel}</select></td>
+      <td><button class="btn" style="padding:2px 6px;font-size:11.5px" ${disAttr}
           onclick="applyOne('${c.name}')" title="应用该类别到网格">应用</button></td>
-      <td><button class="btn" style="padding:2px 7px;font-size:13px" ${disAttr}
+      <td><button class="btn" style="padding:2px 5px;font-size:12px" ${disAttr}
           onclick="toggleParams('${c.name}')" title="展开其它参数">⋯</button></td>
-      <td><button class="btn" style="padding:2px 6px;font-size:12px"
+      <td><button class="btn" style="padding:2px 5px;font-size:11.5px"
           title="${locked ? '已锁定：点此解锁' : '点此锁定，锁定后本类别参数不可修改'}"
           onclick="toggleLock('${c.name}', ${locked ? 'false' : 'true'})"
           >${locked ? '🔒' : '🔓'}</button></td>
