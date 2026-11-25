@@ -3124,6 +3124,26 @@ def _restore_groups(snapshot):
         return {"ok": False, "error": str(e)[:160]}
 
 
+def scan_groups():
+    """扫描分组（不改模型）：返回 {ok, groups:{类别: [体名]}, total, source}
+       与 ① 扫描（/api/auto_scan）完全同源：几何识别 + 人工覆盖
+    """
+    lb = call_bridge("list_bodies", timeout=300)
+    if not lb.get("ok"):
+        return {"ok": False, "groups": {},
+                "error": lb.get("error") or "读不到体"}
+    bodies = lb.get("bodies") or []
+    try:
+        sys.path.insert(0, APP_DIR)
+        import geo_recognize
+        r = geo_recognize.recognize(bodies, kb_extra_rules())
+        groups = merge_custom_groups(r.get("groups") or {})
+        return {"ok": True, "groups": groups,
+                "total": r.get("total") or len(bodies),
+                "source": "recognize+overrides"}
+    except Exception as e:
+        return {"ok": False, "groups": {}, "error": str(e)[:160]}
+
 def scan_model(profile_name=None):
     """全局扫描：每个体给出建议组名 + 几何依据（不改模型）"""
     sys.path.insert(0, APP_DIR)
@@ -4967,9 +4987,23 @@ tr:hover td{background:#141a22}
                 import geo_recognize
                 # 与「① 扫描」用同一来源，避免两边不一致
                 _sg = scan_groups()
+                if not _sg.get("ok"):
+                    return self._json({"ok": False,
+                                       "error": _sg.get("error") or "扫描失败"})
                 groups = dict(_sg.get("groups") or {})
                 if not groups:
                     return self._json({"ok": False, "error": "分组结果为空"})
+
+                # 安全闸：分组数过少 / 覆盖体数不符 → 拒绝落地（避免把模型并成"未分组"）
+                _lb_n = len(lb.get("bodies") or [])
+                _sum_n = sum(len(v) for v in groups.values())
+                if len(groups) < 2 or _sum_n != _lb_n:
+                    return self._json({
+                        "ok": False,
+                        "error": ("扫描结果异常（%d 组 / %d 体，模型有 %d 体），"
+                                  "已中止，未改动模型。请先点①扫描确认结果。"
+                                  % (len(groups), _sum_n, _lb_n)),
+                        "groups": len(groups), "covered": _sum_n, "bodies": _lb_n})
 
                 # 剔除成员名在模型里不存在的组（知识包残留旧体名等）
                 _allnames = set(b.get("name") for b in (lb.get("bodies") or []))

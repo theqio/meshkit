@@ -104,7 +104,10 @@ bad_own = [c for c in own if c["ids"] != 1]
 check(not bad_own, "专属控制项都只含 1 个体" if not bad_own
       else "专属控制项体数异常: %s" % [(c["name"], c["ids"]) for c in bad_own])
 cat = [c for c in ctrls if not c["name"].startswith("SIZE_FIX_")]
-check(len(cat) > 0, "类别控制项 %d 个" % len(cat))
+if len(cat) == 0:
+    print("  \u26a0 类别控制项 0 个（还没建控制项，点「应用设置与尺寸」即可）")
+else:
+    check(True, "类别控制项 %d 个" % len(cat))
 
 print("\n=== 5. 类别与分组一致性 ===")
 try:
