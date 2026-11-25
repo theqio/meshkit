@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 
-HTML = r"D:\ai\meshkit\app\static\index.html"
+HTML = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
 NODE = r"C:\Users\qiyuqiang\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\node\bin\node.exe"
 URL = "http://127.0.0.1:8765"

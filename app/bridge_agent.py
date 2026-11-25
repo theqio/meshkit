@@ -74,15 +74,15 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 # ROOT 已在文件开头自动定位
-AGENT_VERSION = u"2026-12-02.11"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.12"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
 SIZE_MAX = 60.0
 
-_keep = []          # 持有 timer 引用，防止被 GC
-_busy = []          # 简单重入保护
-_hb = [0.0]         # 心跳时间戳
+_keep = globals().get("_keep") or []          # 持有 timer 引用，防止被 GC（重载时保持幂等）
+_busy = globals().get("_busy") or []          # 简单重入保护
+_hb = globals().get("_hb") or [0.0]           # 心跳时间戳
 
 CANCEL_PATH = os.path.join(IPC_DIR, "cancel.flag")
 PROGRESS_PATH = os.path.join(IPC_DIR, "progress.json")
@@ -1565,20 +1565,42 @@ def op_apply(payload):
     for key, value in settings.items():
         try:
             if key in unit_map:
+                cur_val = _mm_value(_safe(mesh, key, None))
+                try:
+                    if cur_val is not None and abs(float(cur_val) - float(value)) < 1e-3:
+                        applied["settings"].append(key)
+                        continue
+                except Exception:
+                    pass
                 setattr(mesh, key, Quantity(unit_map[key] % value))
             else:
-                setattr(mesh, key, bool(value))
+                want_bool = bool(value)
+                cur_bool = _safe(mesh, key, None)
+                if cur_bool is not None and bool(cur_bool) == want_bool:
+                    applied["settings"].append(key)
+                    continue
+                setattr(mesh, key, want_bool)
             applied["settings"].append(key)
         except Exception:
             applied["errors"].append(u"%s: %s" % (key, _tail(traceback.format_exc(), 200)))
 
     sizes = (payload or {}).get("sizes") or {}
+    methods = (payload or {}).get("methods") or {}
+    _cached_grouped = None
+    _cached_owners = None
+    if sizes or methods:
+        try:
+            _recs = _body_records()
+            _cached_grouped, _cached_owners = _plan_groups(_recs)
+        except Exception:
+            _cached_grouped, _cached_owners = None, None
+
     if sizes:
         # 先补建缺失的控制项（新模型 / 一键清理后都能用）；
         # 已存在同名控制项（含你自建的 Body Sizing）则直接改它的尺寸
         try:
-            _recs = _body_records()
-            _grouped, _owners = _plan_groups(_recs)
+            _grouped = _cached_grouped if _cached_grouped is not None else {}
+            _owners = _cached_owners if _cached_owners is not None else {}
             cat_ids = {}
             for _cat, _items in _grouped.items():
                 cat_ids[_cat] = [r["id"] for r in _items if r.get("id") is not None]
@@ -1599,7 +1621,7 @@ def op_apply(payload):
                         existing[_cat] = _c
                         break
             _total_new = len([c for c in sizes
-                              if c not in existing and c not in cat_ids])
+                              if c not in existing and c in cat_ids])
             _done_new = 0
             for cat, val in sizes.items():
                 if cat in existing:
@@ -1638,28 +1660,34 @@ def op_apply(payload):
             try:
                 v = float(sizes[cat])
                 v = max(SIZE_MIN, min(SIZE_MAX, v))
-                c.ElementSize = Quantity(u"%.3f [mm]" % v)
+                cur_sz = _ctrl_size(c)
+                if cur_sz is None or abs(float(cur_sz) - v) >= 1e-3:
+                    c.ElementSize = Quantity(u"%.3f [mm]" % v)
                 if cat not in applied["sizes"]:
                     applied["sizes"].append(cat)
             except Exception:
                 applied["errors"].append(u"%s: %s" % (cat, _tail(traceback.format_exc(), 200)))
 
-    methods = (payload or {}).get("methods") or {}
     if methods:
         try:
-            applied["methods"] = _apply_methods(methods, (payload or {}).get("divisions") or {})
+            applied["methods"] = _apply_methods(
+                methods, (payload or {}).get("divisions") or {},
+                grouped=_cached_grouped)
         except Exception:
             applied["errors"].append(u"methods: %s" % _tail(traceback.format_exc(), 400))
 
     applied["mesh_state"] = _txt(getattr(mesh, "ObjectState", u"-"))
     applied["ok"] = True
-    # 自动去重：避免"点了两次应用"产生两套控制项
-    try:
-        _dd = op_dedupe_controls({})
-        if _dd.get("removed_count"):
-            applied["deduped"] = _dd.get("removed")
-    except Exception:
-        pass
+    # 仅在新建了控制项时才自动去重，避免无变更时额外耗时
+    _has_new = bool(applied.get("created")) or bool(
+        (applied.get("methods") or {}).get("created"))
+    if _has_new:
+        try:
+            _dd = op_dedupe_controls({})
+            if _dd.get("removed_count"):
+                applied["deduped"] = _dd.get("removed")
+        except Exception:
+            pass
     return applied
 
 
@@ -3147,6 +3175,8 @@ def op_mesh(payload):
             elements, nodes = 0, 0
         if elements > 0:
             break
+        if time.time() - started > idle_limit:
+            break
         if _cancelled():
             return {"ok": False, "cancelled": True, "elements": elements,
                     "nodes": nodes, "error": u"已被用户停止"}
@@ -3251,6 +3281,7 @@ def op_fix_failed(payload):
         log.append(u"第 %d 轮：发现 %d 个失败体" % (round_no, len(failed)))
 
         # 为每个失败体设置局部尺寸（在已有 SIZE_FIX 上减半）
+        changed = 0
         for _idx, b in enumerate(failed, 1):
             if _cancelled():
                 log.append(u"  已被用户停止（处理到第 %d/%d 个失败体）" % (_idx, len(failed)))
@@ -3284,6 +3315,7 @@ def op_fix_failed(payload):
                     newval = max(floor_mm, cur * 0.5)
                     from Ansys.Core.Units import Quantity
                     target.ElementSize = Quantity(u"%.3f [mm]" % newval)
+                    changed += 1
                     log.append(u"  %s: %.1f -> %.1f mm" % (_txt(b.Name)[:40], cur, newval))
                     try:
                         _rm2, _er2 = _exclude_body_from_categories(
@@ -3300,6 +3332,7 @@ def op_fix_failed(payload):
                     if ctrl is None:
                         log.append(u"  %s: 新建失败 %s" % (_txt(b.Name)[:30], err))
                     else:
+                        changed += 1
                         log.append(u"  %s: 新建 10 mm" % (_txt(b.Name)[:40]))
                         # 关键：把它从类别级尺寸/方法控制项里摘掉，
                         # 否则类别控制项仍覆盖该体，局部尺寸不生效（一直失败）
@@ -3318,6 +3351,10 @@ def op_fix_failed(payload):
             except Exception:
                 log.append(u"  %s: 处理失败 %s" % (_txt(b.Name)[:30],
                                                   _tail(traceback.format_exc(), 200)))
+
+        if changed == 0:
+            log.append(u"第 %d 轮：无可调整项（均已达尺寸下限），跳过重划" % round_no)
+            break
 
         # 重划
         try:
@@ -3749,34 +3786,44 @@ def _sel_enum():
     return 1
 
 
-def _apply_methods(methods_cfg, divisions=None):
-    """按 {类别: 方法名} 建立/更新/删除方法控制项（用实际控制项分组）"""
-    result = {"created": [], "updated": [], "deleted": [], "errors": [],
-              "cat_count": 0, "id_total": 0}
+def _apply_methods(methods_cfg, divisions=None, grouped=None):
+    """按 {类别: 方法名} 建立/更新/删除方法控制项（复用分组，仅更新有变化项）"""
+    result = {"created": [], "updated": [], "deleted": [], "skipped": [],
+              "errors": [], "cat_count": 0, "id_total": 0}
     if not methods_cfg:
         return result
     divisions = divisions or {}
 
-    recs = _body_records()
-    grouped, _owners = _plan_groups(recs)
+    if grouped is None:
+        recs = _body_records()
+        grouped, _owners = _plan_groups(recs)
     result["cat_count"] = len(grouped)
     result["id_total"] = sum(len(v) for v in grouped.values())
     existing = _method_ctrls()
 
     for cat, method in methods_cfg.items():
+        if _cancelled():
+            result["errors"].append(u"已被用户停止")
+            break
         m = _txt(method).strip()
         ids = [r["id"] for r in grouped.get(cat, []) if r.get("id") is not None]
         if not ids:
             result["errors"].append(u"%s: 找不到该类的体" % cat)
             continue
-        was = existing.get(cat) is not None
-        ok, err = _set_method_for(cat, ids, m, divisions.get(cat))
+        cur_ctrl = existing.get(cat)
+        was = cur_ctrl is not None
+        ok, err, changed = _set_method_for(
+            cat, ids, m, divisions.get(cat), existing_ctrl=cur_ctrl, return_changed=True)
         if not ok:
             result["errors"].append(u"%s: %s" % (cat, err))
             continue
         if m in (u"", u"Automatic", u"自动"):
             if was:
                 result["deleted"].append(cat)
+            else:
+                result["skipped"].append(cat)
+        elif not changed:
+            result["skipped"].append(cat)
         elif was:
             result["updated"].append(cat)
         else:
@@ -5327,8 +5374,8 @@ def op_controls_from_plan(payload):
         method = _txt(item.get("method") or u"Automatic")
         try:
             div = item.get("divisions")
-            if div is None and method == u"Sweep":
-                div = 2          # 薄板类默认 2 层
+            if div is None and method == u"Sweep" and _is_plate_like(ids):
+                div = 2          # 仅薄板类默认 2 层
             okm, errm = _set_method_for(cat, ids, method, div)
             if okm:
                 if method not in (u"", u"Automatic"):
@@ -5433,16 +5480,51 @@ def _apply_sweep_divisions(ctrl, method, divisions, ids=None, force=False):
         return False
 
 
-def _set_method_for(cat, ids, method, divisions=None):
-    """给指定类别（按给定体 id）设置方法控制项"""
-    existing = _method_ctrls().get(cat)
-    if method in (u"", u"Automatic"):
+_UNSET_CTRL = object()
+
+
+def _set_method_for(cat, ids, method, divisions=None, existing_ctrl=_UNSET_CTRL, return_changed=False):
+    """给指定类别（按给定体 id）设置方法控制项（差异更新，避免重复写 COM）"""
+    def _ret(ok, err, changed):
+        if return_changed:
+            return ok, err, changed
+        return ok, err
+
+    existing = _method_ctrls().get(cat) if existing_ctrl is _UNSET_CTRL else existing_ctrl
+    if method in (u"", u"Automatic", u"自动"):
         if existing is not None:
             try:
                 existing.Delete()
             except Exception:
                 pass
-        return True, u""
+            return _ret(True, u"", True)
+        return _ret(True, u"", False)
+
+    want_thin = bool(divisions) or (method == u"Sweep" and _is_plate_like(ids))
+
+    # 差异校验：已有控制项且方法/作用域/层数均一致则直接跳过
+    if existing is not None:
+        try:
+            cur_m = _txt(_safe(existing, "Method", u"")).strip()
+            cur_ids = set(_ctl_ids(existing))
+            want_ids = set(int(x) for x in ids)
+            same_div = True
+            if divisions:
+                cur_div = None
+                for _p in (u"SweepNumDivisions", u"SweepNumberDivisions"):
+                    _v = _safe(existing, _p, None)
+                    if _v is not None:
+                        try:
+                            cur_div = int(float(_txt(_v).split(u"[")[0].strip()))
+                            break
+                        except Exception:
+                            pass
+                same_div = (cur_div == int(divisions))
+            if cur_m.lower() == method.lower() and cur_ids == want_ids and same_div:
+                return _ret(True, u"", False)
+        except Exception:
+            pass
+
     manager = _extapi().SelectionManager
     info = None
     try:
@@ -5450,11 +5532,11 @@ def _set_method_for(cat, ids, method, divisions=None):
     except Exception:
         info = None
     if info is None:
-        return False, u"CreateSelectionInfo 失败"
+        return _ret(False, u"CreateSelectionInfo 失败", False)
     try:
         info.Ids = list(ids)
     except Exception:
-        return False, u"Ids 赋值失败"
+        return _ret(False, u"Ids 赋值失败", False)
     if existing is not None:
         try:
             existing.Location = info
@@ -5462,10 +5544,11 @@ def _set_method_for(cat, ids, method, divisions=None):
             pass
         ok, err = _set_method(existing, method)
         if ok:
-            if method == u"Sweep":
+            if method == u"Sweep" and want_thin:
                 _set_auto_thin(existing)
-            _apply_sweep_divisions(existing, method, divisions, ids, force=True)
-        return ok, err
+            if divisions:
+                _apply_sweep_divisions(existing, method, divisions, ids, force=True)
+        return _ret(ok, err, ok)
     try:
         adder = _safe(_mesh(), "AddAutomaticMethod")
         ctrl = adder()
@@ -5473,12 +5556,13 @@ def _set_method_for(cat, ids, method, divisions=None):
         ctrl.Location = info
         ok, err = _set_method(ctrl, method)
         if ok:
-            if method == u"Sweep":
+            if method == u"Sweep" and want_thin:
                 _set_auto_thin(ctrl)
-            _apply_sweep_divisions(ctrl, method, divisions, ids, force=True)
-        return ok, err
+            if divisions:
+                _apply_sweep_divisions(ctrl, method, divisions, ids, force=True)
+        return _ret(ok, err, ok)
     except Exception:
-        return False, _tail(traceback.format_exc(), 200)
+        return _ret(False, _tail(traceback.format_exc(), 200), False)
 
 
 def op_delete_fix_controls(payload):
@@ -5803,6 +5887,8 @@ def _poll():
         result = fn(cmd.get("payload") or {})
     except Exception:
         result = {"ok": False, "error": _tail(traceback.format_exc(), 2000)}
+    if not isinstance(result, dict):
+        result = {"ok": False, "error": u"命令返回格式异常"}
     _progress(op, u"已结束" if not result.get("cancelled") else u"已停止")
     result["seq"] = seq
     result["op"] = op

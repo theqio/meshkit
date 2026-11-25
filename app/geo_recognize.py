@@ -191,7 +191,7 @@ def recognize(bodies, extra=None):
         for nb in adj[n]:
             if nb in beams:
                 upper |= component(nb, pool=pool)
-    for n in upper:
+    for n in (upper & beams):
         if n not in pred:
             pred[n] = "上梁"
     for n in beams:
@@ -347,13 +347,15 @@ def remap_overrides(mapping):
     if not mapping:
         return {"ok": True, "moved": 0}
     ov = _load_json(OVERRIDE_PATH, {})
+    new_ov = {}
     moved = 0
-    for old, new in mapping.items():
-        if old in ov:
-            lab = ov.pop(old)
-            ov[new] = lab
+    for k, lab in ov.items():
+        if k in mapping:
+            new_ov[mapping[k]] = lab
             moved += 1
-    _save_json(OVERRIDE_PATH, ov)
+        else:
+            new_ov.setdefault(k, lab)
+    _save_json(OVERRIDE_PATH, new_ov)
     return {"ok": True, "moved": moved}
 
 
