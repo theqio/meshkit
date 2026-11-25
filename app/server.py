@@ -3517,7 +3517,8 @@ def call_bridge(op, payload=None, timeout=None, wait=None):
         return {"ok": False, "error": "没有在线的 Mechanical 实例"}
     lk = _pid_lock(pid)
     if wait is None:
-        wait = 2.0 if op in READ_OPS else 180.0
+        # 读操作排队等 12 秒（页面会并发发多个读请求，直接拒绝会让列表空白）
+        wait = 12.0 if op in READ_OPS else 180.0
     if not lk.acquire(timeout=wait):
         held = round(time.time() - _PID_LOCK_TS.get(int(pid), time.time()), 1)
         return {"ok": False, "busy": True,

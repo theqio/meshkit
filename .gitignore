@@ -59,3 +59,17 @@ reports/识别结果.json
 reports/插件按钮.png
 
 dist/
+
+# 开发脚手架与临时文件（不入库）
+app/_patch_*.py
+app/*.bak_*
+app/model_flags__*.json
+app/presets_kb.json
+app/ipc/
+app/config.json
+app/reload_result.json
+*.zip
+
+# 报告：仅保留说明性文档
+reports/*.md
+!reports/错误记录_*.md

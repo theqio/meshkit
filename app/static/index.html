@@ -1389,10 +1389,16 @@ async function loadFailed(){
   const busy = failListBusy();
   if(busy){ captureFailInputs(); return; }   // 正在输入：只记值，不重绘
   try{
-    const r = await api('/api/failed');
+    let r = await api('/api/failed');
+    if(r && (r.busy || r.timeout)){
+      // Mechanical 正忙：等 1.5 秒重试一次，避免列表空白
+      await new Promise(res => setTimeout(res, 1500));
+      r = await api('/api/failed');
+    }
     if(!r.ok){
       $('failCount').textContent = '';
       $('failList').innerHTML = `<div class="muted">${r.error||'读取失败'}</div>`;
+      if(r.busy){ setTimeout(loadFailed, 3000); }
       return;
     }
     captureFailInputs();
