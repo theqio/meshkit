@@ -80,7 +80,7 @@ DEFAULT_SETTINGS = {
 # ============================================================================
 #  配置
 # ============================================================================
-_MODEL_CFG_KEYS = ("sizes", "methods", "thin_divisions", "settings", "advanced")
+_MODEL_CFG_KEYS = ("sizes", "methods", "thin_divisions", "settings", "advanced", "plate_thresholds")
 
 
 def _model_cfg_path(key=None):
@@ -2610,6 +2610,44 @@ def refresh_derived_data():
     return out
 
 
+def is_thin_plate(body: dict, wall=None, plate_cfg=None) -> bool:
+    """薄板/波纹板几何判定（纯函数，可用于单测与每模型阈值定制）：
+       1) 实心薄板：最薄边 <= 8mm 且 长宽比 d1/d0 >= 3
+       2) 薄壁折弯件：长宽比 >= 3 且 最薄边 <= 60mm 且 估算壁厚 <= 4.5mm
+       3) 波纹板/压型板（壁厚/投影面积组合判据）：
+          最薄边 <= 80mm、长宽比 >= 3、投影面积 d1*d2 >= 40000 mm^2，
+          且等效厚度 t_eff = vol / (d1*d2) <= 6.5mm、填充率 <= 0.35
+    """
+    cfg = plate_cfg or {}
+    d = sorted([float(body.get("lx") or 0),
+                float(body.get("ly") or 0),
+                float(body.get("lz") or 0)])
+    if d[0] <= 0:
+        return False
+    ratio = d[1] / d[0]
+    min_ratio = float(cfg.get("min_ratio", 3.0))
+    solid_max = float(cfg.get("solid_max_mm", 8.0))
+    if d[0] <= solid_max and ratio >= min_ratio:
+        return True
+    wall_max = float(cfg.get("wall_max_mm", 4.5))
+    hollow_d0_max = float(cfg.get("hollow_d0_max_mm", 60.0))
+    if ratio >= min_ratio and d[0] <= hollow_d0_max and wall and float(wall) <= wall_max:
+        return True
+    # 组合判据：波纹板（如 45mm 轮廓厚，实际板厚 1.5~6mm，投影面积大）
+    vol = float(body.get("vol") or 0)
+    area = d[1] * d[2]
+    bbox = d[0] * area
+    if vol > 0 and area >= float(cfg.get("min_area_mm2", 40000.0)) and bbox > 0:
+        t_eff = vol / area
+        fill = vol / bbox
+        if (d[0] <= float(cfg.get("corrugated_d0_max_mm", 80.0))
+                and ratio >= min_ratio
+                and t_eff <= float(cfg.get("eff_wall_max_mm", 6.5))
+                and fill <= float(cfg.get("max_fill", 0.35))):
+            return True
+    return False
+
+
 def debug_thin_detail(cat):
     """诊断：某类别内每个体的薄板判定明细"""
     sys.path.insert(0, APP_DIR)
@@ -2626,6 +2664,7 @@ def debug_thin_detail(cat):
     groups = rec.get("groups") or {}
     names = groups.get(cat) or []
     bmap = {b.get("name"): b for b in bodies}
+    plate_cfg = (load_config().get("plate_thresholds") or {})
     out = []
     plate = 0
     for n in names:
@@ -2640,15 +2679,13 @@ def debug_thin_detail(cat):
                 w = (_exp.features(b) or {}).get("wall")
             except Exception:
                 w = None
-        is_plate = False
-        if d[0] <= 8 and ratio >= 3:
-            is_plate = True
-        elif ratio >= 3 and d[0] <= 60 and w and w <= 4.5:
-            is_plate = True
+        area = d[1] * d[2]
+        t_eff = round((b.get("vol") or 0) / area, 2) if area > 0 else None
+        is_plate = is_thin_plate(b, wall=w, plate_cfg=plate_cfg)
         if is_plate:
             plate += 1
         out.append({"name": n, "dims": [round(x, 1) for x in d],
-                    "ratio": round(ratio, 2), "wall": w,
+                    "ratio": round(ratio, 2), "wall": w, "t_eff": t_eff,
                     "vol": b.get("vol"), "plate": is_plate})
     return {"ok": True, "cat": cat, "n": len(names), "plate": plate,
             "auto_thin": bool(names and plate * 2 >= len(names)),
@@ -2770,27 +2807,18 @@ def categories_from_recognition(fast=False):
             rec_size = max(2.0, min(40.0, round(med * 2.5, 1)))
             basis = "2.5×壁厚（中位 %.2f mm）" % med
 
-        # 自动判定薄板：中位壁厚 ≤ 8mm，或整体很薄（最薄 < 5mm）
-        # 薄板判定：板状（宽度远大于厚度），不是方管/实心块
+        # 薄板判定：实心薄板 / 薄壁件 / 波纹板（壁厚+投影面积组合判据）
+        _plate_cfg = cfg.get("plate_thresholds") or {}
         _plate = 0
         for n in names:
             b = bmap.get(n) or {}
-            _d = sorted([b.get("lx") or 0, b.get("ly") or 0, b.get("lz") or 0])
-            if _d[0] <= 0:
-                continue
-            _ratio = _d[1] / _d[0]
             _w = None
             if _exp is not None:
                 try:
                     _w = (_exp.features(b) or {}).get("wall")
                 except Exception:
                     _w = None
-            _is_plate = False
-            if _d[0] <= 8 and _ratio >= 3:
-                _is_plate = True
-            elif _ratio >= 3 and _d[0] <= 60 and _w and _w <= 4.5:
-                _is_plate = True
-            if _is_plate:
+            if is_thin_plate(b, wall=_w, plate_cfg=_plate_cfg):
                 _plate += 1
         auto_thin = bool(names and _plate * 2 >= len(names))
 

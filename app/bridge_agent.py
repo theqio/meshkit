@@ -74,7 +74,7 @@ RES_PATH = os.path.join(IPC_DIR, "result_%d.json" % AGENT_PID)
 REG_PATH = os.path.join(AGENTS_DIR, "%d.json" % AGENT_PID)
 STATE_PATH = os.path.join(IPC_DIR, "bridge_state.json")
 # ROOT 已在文件开头自动定位
-AGENT_VERSION = u"2026-12-02.12"   # 每次改代理代码都要改这里，用来确认是否已重载
+AGENT_VERSION = u"2026-12-02.13"   # 每次改代理代码都要改这里，用来确认是否已重载
 
 # 允许的类别尺寸上下限（mm）
 SIZE_MIN = 2.0
@@ -1586,9 +1586,26 @@ def op_apply(payload):
 
     sizes = (payload or {}).get("sizes") or {}
     methods = (payload or {}).get("methods") or {}
+    _mesh_children = list(_model().Mesh.Children or [])
+
+    # 先快速扫描现有尺寸控制项（仅遍历 Mesh.Children，无需全量扫描几何体）
+    existing_size_ctrls = {}
+    for c in _mesh_children:
+        try:
+            nm = _txt(c.Name)
+        except Exception:
+            continue
+        if nm.startswith(u"SIZE_FIX_") or nm.startswith(u"METHOD_"):
+            continue
+        cat = _ctrl_category(nm)
+        if cat and cat not in existing_size_ctrls:
+            existing_size_ctrls[cat] = c
+
+    _missing_size_cats = [c for c in sizes if c not in existing_size_ctrls]
     _cached_grouped = None
     _cached_owners = None
-    if sizes or methods:
+    _need_body_scan = bool(_missing_size_cats) or bool(methods)
+    if _need_body_scan:
         try:
             _recs = _body_records()
             _cached_grouped, _cached_owners = _plan_groups(_recs)
@@ -1596,54 +1613,47 @@ def op_apply(payload):
             _cached_grouped, _cached_owners = None, None
 
     if sizes:
-        # 先补建缺失的控制项（新模型 / 一键清理后都能用）；
-        # 已存在同名控制项（含你自建的 Body Sizing）则直接改它的尺寸
-        try:
-            _grouped = _cached_grouped if _cached_grouped is not None else {}
-            _owners = _cached_owners if _cached_owners is not None else {}
-            cat_ids = {}
-            for _cat, _items in _grouped.items():
-                cat_ids[_cat] = [r["id"] for r in _items if r.get("id") is not None]
-            # 控制项里没有的类别，从 Geometry 分组补上体
+        # 仅当存在缺失控制项时，才扫描 Geometry 分组并补建
+        if _missing_size_cats:
             try:
-                for _g, _ids in _geom_group_ids().items():
-                    if _g and _ids and not cat_ids.get(_g):
-                        cat_ids[_g] = _ids
-            except Exception:
-                pass
-            existing = {}
-            for _cat, _ctrls in _owners.items():
-                for _c in _ctrls:
-                    _nm = _txt(_safe(_c, "Name", u""))
-                    if _nm.startswith(u"METHOD_"):
-                        continue
-                    if _ctrl_size(_c) is not None or _nm.startswith(u"SIZE_"):
-                        existing[_cat] = _c
+                _grouped = _cached_grouped if _cached_grouped is not None else {}
+                cat_ids = {}
+                for _cat, _items in _grouped.items():
+                    cat_ids[_cat] = [r["id"] for r in _items if r.get("id") is not None]
+                if any(not cat_ids.get(c) for c in _missing_size_cats):
+                    try:
+                        for _g, _ids in _geom_group_ids().items():
+                            if _g and _ids and not cat_ids.get(_g):
+                                cat_ids[_g] = _ids
+                    except Exception:
+                        pass
+                _total_new = len([c for c in _missing_size_cats if cat_ids.get(c)])
+                _done_new = 0
+                for cat in _missing_size_cats:
+                    val = sizes[cat]
+                    if _cancelled():
+                        applied["errors"].append(u"已被用户停止（补建控制项阶段）")
+                        applied["cancelled"] = True
                         break
-            _total_new = len([c for c in sizes
-                              if c not in existing and c in cat_ids])
-            _done_new = 0
-            for cat, val in sizes.items():
-                if cat in existing:
-                    continue
-                if _cancelled():
-                    applied["errors"].append(u"已被用户停止（补建控制项阶段）")
-                    applied["cancelled"] = True
-                    break
-                ids = cat_ids.get(cat) or []
-                if not ids:
-                    continue
-                _done_new += 1
-                _progress(u"apply", u"补建控制项", _done_new, max(_total_new, 1))
-                ctrl, err = _new_sizing(cat, ids, val)
-                if ctrl is None:
-                    applied["errors"].append(u"新建 SIZE_%s 失败: %s" % (cat, err))
-                else:
-                    applied.setdefault("created", []).append(u"SIZE_%s=%g" % (cat, val))
-        except Exception:
-            applied["errors"].append(u"补建控制项异常: %s" % _tail(traceback.format_exc(), 300))
+                    ids = cat_ids.get(cat) or []
+                    if not ids:
+                        continue
+                    _done_new += 1
+                    _progress(u"apply", u"补建控制项", _done_new, max(_total_new, 1))
+                    ctrl, err = _new_sizing(cat, ids, val)
+                    if ctrl is None:
+                        applied["errors"].append(u"新建 SIZE_%s 失败: %s" % (cat, err))
+                    else:
+                        existing_size_ctrls[cat] = ctrl
+                        applied.setdefault("created", []).append(u"SIZE_%s=%g" % (cat, val))
+                        if cat not in applied["sizes"]:
+                            applied["sizes"].append(cat)
+            except Exception:
+                applied["errors"].append(u"补建控制项异常: %s" % _tail(traceback.format_exc(), 300))
 
-        for c in (_model().Mesh.Children or []):
+        # 仅更新已有控制项（新建的控制项已在 _new_sizing 里写好尺寸，跳过重复写）
+        _created_cats = set(applied["sizes"])
+        for c in _mesh_children:
             try:
                 nm = _txt(c.Name)
             except Exception:
@@ -1651,7 +1661,7 @@ def op_apply(payload):
             if nm.startswith(u"SIZE_FIX_") or nm.startswith(u"METHOD_"):
                 continue      # 方法控制项没有 ElementSize
             cat = _ctrl_category(nm)
-            if cat not in sizes:
+            if cat not in sizes or cat in _created_cats:
                 continue
             if _cancelled():
                 applied["errors"].append(u"已被用户停止")
@@ -5324,14 +5334,23 @@ def op_controls_from_plan(payload):
         return {"ok": False, "error": u"plan 为空"}
 
     ids_by_name = {}
+    body_geom = {}
     for b in _bodies():
         if _safe(b, "Suppressed", False):
             continue
         try:
-            ids_by_name[_txt(_safe(b, "Name", u""))] = int(b.GetGeoBody().Id)
+            bid = int(b.GetGeoBody().Id)
+            ids_by_name[_txt(_safe(b, "Name", u""))] = bid
+            dims = sorted([_mm_value(_safe(b, "LengthX", 0)),
+                           _mm_value(_safe(b, "LengthY", 0)),
+                           _mm_value(_safe(b, "LengthZ", 0))])
+            vol = _vol_value(_safe(b, "Volume", 0))
+            body_geom[bid] = (dims, vol)
         except Exception:
             continue
 
+    existing_sizes = _size_ctrls()
+    existing_methods = _method_ctrls()
     created, methods, errors, skipped = [], [], [], []
     for item in plan:
         if _cancelled():
@@ -5348,12 +5367,14 @@ def op_controls_from_plan(payload):
         except Exception:
             size = 30.0
 
-        # 尺寸控制项：已有则改尺寸，没有则新建
-        existing = _size_ctrls().get(cat)
+        # 尺寸控制项：已有则仅在数值变化时更新，没有则新建
+        existing = existing_sizes.get(cat)
         if existing is not None:
             try:
-                from Ansys.Core.Units import Quantity
-                existing.ElementSize = Quantity(u"%.3f [mm]" % size)
+                cur_sz = _ctrl_size(existing)
+                if cur_sz is None or abs(float(cur_sz) - size) >= 1e-3:
+                    from Ansys.Core.Units import Quantity
+                    existing.ElementSize = Quantity(u"%.3f [mm]" % size)
                 created.append(u"%s（更新 %s）" % (cat, size))
             except Exception:
                 errors.append(u"%s: 更新尺寸失败" % cat)
@@ -5368,15 +5389,19 @@ def op_controls_from_plan(payload):
                         ctrl.Name = cat
                 except Exception:
                     pass
+                existing_sizes[cat] = ctrl
                 created.append(u"%s（新建 %s）" % (cat, size))
 
-        # 方法
+        # 方法（复用外层 existing_methods 与 body_geom，避免重复扫描 COM）
         method = _txt(item.get("method") or u"Automatic")
         try:
             div = item.get("divisions")
-            if div is None and method == u"Sweep" and _is_plate_like(ids):
-                div = 2          # 仅薄板类默认 2 层
-            okm, errm = _set_method_for(cat, ids, method, div)
+            if div is None and method == u"Sweep" and _is_plate_like(ids, body_geom=body_geom):
+                div = 2          # 仅薄板/波纹板类默认 2 层
+            okm, errm = _set_method_for(
+                cat, ids, method, div,
+                existing_ctrl=existing_methods.get(cat),
+                body_geom=body_geom)
             if okm:
                 if method not in (u"", u"Automatic"):
                     methods.append(u"%s=%s" % (cat, method))
@@ -5392,13 +5417,46 @@ def op_controls_from_plan(payload):
             "category_count": len(plan)}
 
 
-def _is_plate_like(ids):
-    """判断作用域里的体是不是"薄板/薄壁结构"：按壁厚判断，不看长细比。
-       实心件壁厚=最薄边；空心件由填充率反推壁厚。
-    """
+def _is_plate_like_body(dims, vol):
+    """单体的薄板/波纹板几何判定（IronPython 2.7 纯计算，不触发 COM）"""
+    if not dims or dims[0] <= 0:
+        return False
+    d0, d1, d2 = dims[0], dims[1], dims[2]
+    bbox = d0 * d1 * d2 or 1.0
+    fill = max(0.0, min(1.0, vol / bbox))
+    ratio = d1 / d0 if d0 > 0 else 0.0
+    if fill >= 0.6:
+        return d0 <= 8.0 and ratio >= 3.0
+    w = 0.5 * d1 * (1.0 - (max(0.0, 1.0 - fill)) ** 0.5)
+    w = max(0.3, min(w, d0))
+    if w <= 8.0 and d0 <= 60.0:
+        return True
+    # 波纹板/压型板：壁厚/投影面积组合判据（等效厚度 t_eff = vol / (d1*d2)）
+    area = d1 * d2
+    if area >= 40000.0 and d0 <= 80.0 and ratio >= 3.0 and fill <= 0.35:
+        t_eff = vol / area
+        if 0.0 < t_eff <= 6.5:
+            return True
+    return False
+
+
+def _is_plate_like(ids, body_geom=None):
+    """判断作用域里的体是不是"薄板/薄壁/波纹板结构"（支持复用已扫描几何缓存）"""
     try:
-        walls = []
         id_set = set(int(x) for x in (ids or []))
+        if not id_set:
+            return False
+        plate_cnt = 0
+        total_cnt = 0
+        if body_geom is not None:
+            for bid in id_set:
+                g = body_geom.get(bid)
+                if not g:
+                    continue
+                total_cnt += 1
+                if _is_plate_like_body(g[0], g[1]):
+                    plate_cnt += 1
+            return bool(total_cnt and plate_cnt * 2 >= total_cnt)
         for b in _bodies():
             try:
                 if int(b.GetGeoBody().Id) not in id_set:
@@ -5411,17 +5469,10 @@ def _is_plate_like(ids):
             if dims[0] <= 0:
                 continue
             vol = _vol_value(_safe(b, "Volume", 0))
-            bbox = dims[0] * dims[1] * dims[2] or 1.0
-            fill = max(0.0, min(1.0, vol / bbox))
-            if fill >= 0.6:
-                walls.append(dims[0])          # 实心：最薄边
-            else:
-                w = 0.5 * dims[1] * (1.0 - (max(0.0, 1.0 - fill)) ** 0.5)
-                walls.append(max(0.3, min(w, dims[0])))
-        if not walls:
-            return False
-        walls.sort()
-        return walls[len(walls) // 2] <= 8.0   # 壁厚 ≤ 8mm 即视为薄板结构
+            total_cnt += 1
+            if _is_plate_like_body(dims, vol):
+                plate_cnt += 1
+        return bool(total_cnt and plate_cnt * 2 >= total_cnt)
     except Exception:
         return False
 
@@ -5483,7 +5534,7 @@ def _apply_sweep_divisions(ctrl, method, divisions, ids=None, force=False):
 _UNSET_CTRL = object()
 
 
-def _set_method_for(cat, ids, method, divisions=None, existing_ctrl=_UNSET_CTRL, return_changed=False):
+def _set_method_for(cat, ids, method, divisions=None, existing_ctrl=_UNSET_CTRL, return_changed=False, body_geom=None):
     """给指定类别（按给定体 id）设置方法控制项（差异更新，避免重复写 COM）"""
     def _ret(ok, err, changed):
         if return_changed:
@@ -5500,7 +5551,7 @@ def _set_method_for(cat, ids, method, divisions=None, existing_ctrl=_UNSET_CTRL,
             return _ret(True, u"", True)
         return _ret(True, u"", False)
 
-    want_thin = bool(divisions) or (method == u"Sweep" and _is_plate_like(ids))
+    want_thin = bool(divisions) or (method == u"Sweep" and _is_plate_like(ids, body_geom=body_geom))
 
     # 差异校验：已有控制项且方法/作用域/层数均一致则直接跳过
     if existing is not None:
