@@ -76,3 +76,5 @@ reports/*.md
 
 # 分模型配置（每台机器/每个模型各自）
 app/model_config__*.json
+
+*.bak2_*
