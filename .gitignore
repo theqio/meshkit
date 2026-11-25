@@ -78,3 +78,7 @@ reports/*.md
 app/model_config__*.json
 
 *.bak2_*
+
+# DLP ≤‚ ‘/¡Ÿ ±ÃΩ’Î
+_dlp_test/
+_dlp_probe*
