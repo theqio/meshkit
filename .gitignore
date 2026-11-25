@@ -14,7 +14,7 @@ app/geo_model.json
 
 # 本地归档（早期实验脚本，不入库）
 _archive/
-tools/
+/tools/
 
 # Python
 __pycache__/
