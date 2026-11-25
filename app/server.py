@@ -61,6 +61,26 @@ PROGRESS_PATH = os.path.join(IPC_DIR, "progress.json")
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("MESHKIT_PORT", "8765"))
+APP_VERSION = "2026-12-02.13"
+
+
+def _expected_agent_version() -> str:
+    """从同目录 bridge_agent.py 读取当前最新代理版本号"""
+    try:
+        p = os.path.join(APP_DIR, "bridge_agent.py")
+        with open(p, "r", encoding="utf-8-sig", errors="ignore") as f:
+            for _ in range(120):
+                line = f.readline()
+                if not line:
+                    break
+                m = re.search(r'AGENT_VERSION\s*=\s*u?["\']([^"\']+)["\']', line)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return APP_VERSION
+
+
 OP_TIMEOUT = {"ping": 8, "status": 30, "apply": 600, "mesh": 2400,
               "fix_failed": 3000, "quality": 600, "exec": 900}
 
@@ -1600,6 +1620,8 @@ def cache_invalidate(prefix=""):
     for k in list(_CACHE.keys()):
         if not prefix or str(k).startswith(str(prefix)):
             _CACHE.pop(k, None)
+    if not prefix:
+        _CTRL_CACHE.clear()
     if not prefix:
         _CTRL_CACHE.clear()
 
@@ -3745,7 +3767,29 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/ping":
                 return self._json({"ok": True, "bridge": bridge_alive(),
-                                   "pid": os.getpid(), "time": time.strftime("%H:%M:%S")})
+                                   "pid": os.getpid(), "time": time.strftime("%H:%M:%S"),
+                                   "version": APP_VERSION,
+                                   "expected_agent_version": _expected_agent_version()})
+
+            if path == "/api/job":
+                jid = (qs.get("id") or [""])[0].strip()
+                if not jid:
+                    with _JOBS_LOCK:
+                        items = [
+                            {k: v for k, v in j.items() if k != "result"}
+                            for j in sorted(_JOBS.values(),
+                                            key=lambda x: x.get("created_at", 0),
+                                            reverse=True)[:20]
+                        ]
+                    return self._json({"ok": True, "jobs": items})
+                with _JOBS_LOCK:
+                    job = _JOBS.get(jid)
+                    snap = dict(job) if job else None
+                if not snap:
+                    return self._json({"ok": False, "error": "任务不存在或已清理"}, 404)
+                snap["ok"] = True
+                snap["progress"] = _read_json(PROGRESS_PATH) or {}
+                return self._json(snap)
 
             if path == "/api/job":
                 jid = (qs.get("id") or [""])[0].strip()

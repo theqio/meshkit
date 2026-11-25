@@ -111,6 +111,10 @@
   <button class="btn" id="btnRefresh">刷新状态</button>
   <button class="btn primary" id="btnAI">AI 分析</button>
   <button class="btn" id="btnSettings" title="设置（大模型密钥等）">设置</button>
+  <span id="appVer" class="muted" title="程序版本"
+        style="font-size:11.5px;padding:2px 7px;border-radius:6px;
+               background:var(--panel2);border:1px solid var(--line);
+               white-space:nowrap;font-variant-numeric:tabular-nums">v—</span>
 </header>
 
 <div id="targetBar" style="display:flex;align-items:center;gap:10px;padding:6px 18px;
@@ -528,6 +532,37 @@ function INSTANCES_TARGET_LABEL(){
 const fmt = n => (n||0).toLocaleString('en-US');
 const fmtNum = (n, d = 3) => (n === null || n === undefined || isNaN(Number(n))) ? '—' : Number(n).toFixed(d);
 
+/* ---------------- 版本号徽标 ---------------- */
+let _APP_VER = '', _EXP_AGENT_VER = '', _CUR_AGENT_VER = '';
+function renderVersionBadge(){
+  const el = $('appVer');
+  if(!el) return;
+  const appV = _APP_VER || _EXP_AGENT_VER || '';
+  const expV = _EXP_AGENT_VER || appV;
+  const agV = _CUR_AGENT_VER || '';
+  if(!appV && !agV){
+    el.textContent = 'v—';
+    return;
+  }
+  const outdated = !!(agV && expV && agV !== expV);
+  if(outdated){
+    const shortAg = agV.includes('.') ? ('.' + agV.split('.').pop()) : agV;
+    el.textContent = `v${appV} (代理 ${shortAg} 需重载)`;
+    el.style.color = '#ffd48a';
+    el.style.borderColor = '#6b4f1d';
+    el.style.background = '#3a2a10';
+    el.title = `服务/最新代理：${expV}｜当前 Mechanical 代理：${agV}（请在 Mechanical 按 Ctrl+F5 重载）`;
+  }else{
+    el.textContent = 'v' + (appV || agV);
+    el.style.color = agV ? '#7ee2a8' : 'var(--dim)';
+    el.style.borderColor = agV ? '#1f6f4a' : 'var(--line)';
+    el.style.background = 'var(--panel2)';
+    el.title = agV
+      ? `服务版本：${appV || '—'}｜代理版本：${agV}（已是最新）`
+      : `服务版本：${appV}（未连接 Mechanical 代理）`;
+  }
+}
+
 /* ---------------- 状态 ---------------- */
 let _refreshBusy = false;
 async function refresh(){
@@ -536,6 +571,9 @@ async function refresh(){
   _refreshBusy = true;
   try{
     const p = await api('/api/ping', {_timeoutMs: 6000});
+    if(p && p.version) _APP_VER = p.version;
+    if(p && p.expected_agent_version) _EXP_AGENT_VER = p.expected_agent_version;
+    renderVersionBadge();
     const on = !!p.bridge;
     $('dot').className = 'dot' + (on ? ' on' : '');
     $('bridgeText').textContent = on ? '已连接 Mechanical' : '未连接 Mechanical';
@@ -1000,6 +1038,9 @@ async function loadAgents(){
     const cur = INSTANCES.find(x => x.pid === PICKED_PID) || INSTANCES[0];
     const btn = $('btnConnect');
     if(btn) btn.textContent = cur && cur.connected ? '切换' : '连接';
+    const tgtInst = INSTANCES.find(x => x.target) || cur;
+    _CUR_AGENT_VER = (tgtInst && tgtInst.connected && tgtInst.version) ? tgtInst.version : '';
+    renderVersionBadge();
   }catch(e){ /* 忽略 */ }
   finally{ _agentBusy = false; }
 }
