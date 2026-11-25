@@ -11,6 +11,7 @@ if not defined PY if exist "C:\Python311\python.exe" set "PY=C:\Python311\python
 if not defined PY if exist "C:\Python310\python.exe" set "PY=C:\Python310\python.exe"
 if not defined PY if exist "%USERPROFILE%\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe" set "PY=%USERPROFILE%\.dsh\dsh-runtimes\dsh-primary-runtime\dependencies\python\python.exe"
 if not defined PY set "PY=py -3"
+set PYTHONIOENCODING=utf-8
 echo Using Python: %PY%
 echo.
 %PY% "app\tools\dlp_bridge.py" export
