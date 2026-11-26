@@ -61,21 +61,21 @@
   <span class="pill" id="docName" hidden></span>
   <div class="grow"></div>
   <a class="btn" href="/" style="text-decoration:none">← 网格工具</a>
-  <button class="btn" id="btnConnect">复制加载命令</button>
-  <button class="btn primary" id="btnProbe">① 探测环境</button>
+  <button class="btn primary" id="btnConnect">连接 SpaceClaim</button>
+  <button class="btn" id="btnManual" title="高级：在 SpaceClaim 里手动加载代理脚本">手动方式</button>
 </header>
 
 <main>
   <div class="card">
-    <h2>使用前：在 SpaceClaim 里加载体检代理</h2>
+    <h2>连接方式（自动）</h2>
     <div class="steps">
-      <div class="step"><b>1.</b> 打开 SpaceClaim 并载入模型</div>
-      <div class="step"><b>2.</b> 设计选项卡 → <b>脚本</b>按钮；或 文件 → 新建 → 脚本</div>
-      <div class="step"><b>3.</b> 点右上「复制加载命令」→ 粘贴 → Run</div>
-      <div class="step"><b>4.</b> 本页状态变绿后可开始检查</div>
+      <div class="step"><b>1.</b> 点右上「连接 SpaceClaim」</div>
+      <div class="step"><b>2.</b> 下面选模型 → 「开始全自动体检」</div>
+      <div class="step"><b>3.</b> 后台自动启动 SpaceClaim 检查，约 1 分钟</div>
+      <div class="step"><b>4.</b> 结果直接出表，不需要手动跑脚本</div>
     </div>
     <div class="muted" style="margin-top:10px;font-size:12.5px">
-      代理状态：<span id="agentInfo">—</span>
+      连接状态：<span id="agentInfo">未连接</span>
     </div>
   </div>
 
@@ -99,7 +99,7 @@
   </div>
 
   <div class="card">
-    <h2>只读检查（不修改模型）</h2>
+    <h2>只读检查（实时代理模式，需要先用手动方式加载脚本）</h2>
     <div class="toolbar">
       <button class="btn" id="btnParts">② 列出零件</button>
       <button class="btn" id="btnSym">③ 对称 / 位置检查</button>
@@ -119,6 +119,10 @@
 </main>
 
 <script>
+window.onerror = function(m, src, line, col, err){
+  document.title = 'JSERR: ' + m + ' @' + line + ':' + col;
+  return false;
+};
 const $ = id => document.getElementById(id);
 let BUSY = false;
 let AGENT_ONLINE = false;
@@ -154,40 +158,57 @@ async function refreshConn(){
   const dn = $('docName');
   const ai = $('agentInfo');
   try{
-    const r = await api('/api/scdm/status', {_timeoutMs: 8000});
-    if(r && r.online){
+    const r = await api('/api/scdm/connect', {method:'POST', body:'{}', _timeoutMs: 20000});
+    if(r && r.ok){
       AGENT_ONLINE = true;
-      el.textContent = '已连接 · v' + (r.version || '?');
+      el.textContent = '已连接 · ' + (r.version || '') ;
       el.style.color = '#7ee2a8';
       el.style.borderColor = '#1f6f4a';
-      if(r.doc){ dn.hidden = false; dn.textContent = r.doc; }
-      ai.textContent = `版本 ${r.version||'?'}　心跳 ${r.age}s 前　pid ${r.pid||'?'}`;
+      const wins = r.windows || [];
+      if(wins.length){
+        dn.hidden = false;
+        dn.textContent = '当前文档：' + wins[0].doc + (wins.length > 1 ? (' 等 ' + wins.length + ' 个') : '');
+      }else{
+        dn.hidden = true;
+      }
+      ai.innerHTML = '已连接（自动模式）　SpaceClaim：' + (r.version || '?') +
+        '<br>' + (r.exe || '') +
+        '<br><span class="muted">' + (r.message || '') + '</span>';
     }else{
       AGENT_ONLINE = false;
       el.textContent = '未连接';
       el.style.color = '#ffb84d';
       el.style.borderColor = '#6b4f1d';
       dn.hidden = true;
-      ai.textContent = (r && r.error) || 'SpaceClaim 里还没加载 scdm_agent.py';
+      ai.textContent = (r && r.error) || '未找到 SpaceClaim';
     }
   }catch(e){
-    el.textContent = '状态读取失败';
+    el.textContent = '连接失败';
+    ai.textContent = String(e);
   }
 }
 
 async function doConnect(){
-  const r = await api('/api/scdm/connect', {method:'POST', body:'{}', _timeoutMs: 15000});
+  const r = await api('/api/scdm/connect', {method:'POST', body:'{}', _timeoutMs: 20000});
   if(r && r.ok){
-    log('加载命令已复制到剪贴板');
-    log(r.command || '');
-    alert('命令已复制。\n\n到 SpaceClaim：设计选项卡 → 脚本（或 文件 → 新建 → 脚本）→ 粘贴 → 运行');
+    log('已连接 SpaceClaim ' + (r.version || '') + '（自动模式）');
+    if((r.windows||[]).length) log('当前文档：' + r.windows[0].doc);
+    refreshConn();
   }else{
-    log('复制失败：' + ((r && r.error) || ''));
+    log('连接失败：' + ((r && r.error) || ''));
+    alert('连接失败：' + ((r && r.error) || '未找到 SpaceClaim.exe'));
   }
-  $('btnBatch').onclick = runBatch;
-$('btnReloadModels').onclick = loadModels;
-loadModels();
-refreshConn();
+}
+
+async function manualCommand(){
+  const r = await api('/api/scdm/command', {method:'POST', body:'{}', _timeoutMs: 15000});
+  if(r && r.ok){
+    log('手动加载命令已复制到剪贴板');
+    log(r.command || '');
+    alert('已复制手动加载命令。\n\n只有在需要用“实时代理模式”（在已打开的 SpaceClaim 里跑脚本）时才会用到：\n\n' + (r.command||''));
+  }else{
+    log('获取命令失败');
+  }
 }
 
 async function runOp(op, label){
@@ -385,14 +406,22 @@ function renderBatch(r){
   $('batchResult').innerHTML = h;
 }
 
-$('btnConnect').onclick = doConnect;
-$('btnProbe').onclick = () => runOp('probe', '探测环境');
-$('btnParts').onclick = () => runOp('list_parts', '列出零件');
-$('btnSym').onclick = () => runOp('symmetry', '对称/位置检查');
-$('btnGaps').onclick = () => runOp('gaps', '接触间隙检查');
+function bind(id, fn){
+  const el = document.getElementById(id);
+  if(el) el.onclick = fn;
+}
+bind('btnConnect', doConnect);
+bind('btnManual', manualCommand);
+bind('btnProbe', () => runOp('probe', '探测环境'));
+bind('btnParts', () => runOp('list_parts', '列出零件'));
+bind('btnSym', () => runOp('symmetry', '对称/位置检查'));
+bind('btnGaps', () => runOp('gaps', '接触间隙检查'));
+bind('btnBatch', runBatch);
+bind('btnReloadModels', loadModels);
 
-refreshConn();
-setInterval(refreshConn, 5000);
+doConnect();
+loadModels();
+setInterval(refreshConn, 15000);
 log('页面已加载，等待连接 SpaceClaim');
 </script>
 </body>

@@ -3904,6 +3904,74 @@ def scdm_batch(op="all", model="", tol_mm=1.0, max_gap_mm=3.0,
             "error": "体检超时（%ss）：模型可能过大，或 SpaceClaim 启动失败" % int(timeout)}
 
 
+# ---------------------------------------------------------------------------
+#  SpaceClaim 自动连接（不需要在 SCDM 里跑脚本）
+# ---------------------------------------------------------------------------
+def _scdm_windows():
+    """枚举当前打开的 SpaceClaim 窗口（纯 ctypes，无依赖）"""
+    out = []
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        proc_type = ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)
+        found = []
+
+        def _cb(hwnd, lparam):
+            try:
+                if not user32.IsWindowVisible(hwnd):
+                    return True
+                n = user32.GetWindowTextLengthW(hwnd)
+                if n <= 0:
+                    return True
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                title = buf.value
+                if title.endswith("- SpaceClaim"):
+                    pid = wintypes.DWORD()
+                    user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                    found.append({"pid": int(pid.value),
+                                  "title": title,
+                                  "doc": title[:-len("- SpaceClaim")].strip()})
+            except Exception:
+                pass
+            return True
+
+        user32.EnumWindows(proc_type(_cb), 0)
+        out = found
+    except Exception:
+        pass
+    return out
+
+
+def scdm_auto_info():
+    """连接信息：exe、版本、当前打开的窗口、最近模型"""
+    exe = scdm_exe()
+    ver = ""
+    if exe:
+        try:
+            import re as _re
+            m = _re.search(r"v(\d{3})\\", exe)
+            if m:
+                v = m.group(1)
+                ver = "20%s R%s" % (v[:2], v[2])
+        except Exception:
+            ver = ""
+    return {"ok": bool(exe), "mode": "auto", "exe": exe, "version": ver,
+            "windows": _scdm_windows(),
+            "models": scdm_models(limit=10)}
+
+
+def scdm_connect_auto():
+    info = scdm_auto_info()
+    if not info.get("ok"):
+        info["error"] = "未找到 SpaceClaim.exe（可通过环境变量 AWP_ROOT221 指定）"
+        return info
+    info["message"] = ("已连接：点「开始全自动体检」会自动后台启动 SpaceClaim 检查所选模型"
+                       "（不需要在 SpaceClaim 里粘贴任何脚本）")
+    return info
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MeshKitAI/1.0"
 
@@ -5111,6 +5179,9 @@ tr:hover td{background:#141a22}
                 return self._json(r)
 
             if path == "/api/scdm/connect":
+                return self._json(scdm_connect_auto())
+
+            if path == "/api/scdm/command":
                 return self._json(scdm_connect())
 
             if path == "/api/scdm/op":
