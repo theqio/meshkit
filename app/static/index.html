@@ -228,7 +228,26 @@
       <div id="failList" style="max-height:260px;overflow:auto"></div>
     </div>
 
-    <div class="card" style="margin-top:14px">
+      <div class="card" id="cardScdm">
+    <h2>SpaceClaim 模型体检（只读，不改模型）
+      <span class="muted" id="scdmState" style="font-weight:400;font-size:12px">检测中…</span>
+    </h2>
+    <div class="muted" style="margin-bottom:8px;font-size:12px">
+      先在 SpaceClaim 的 Scripting 面板加载 <code>scdm_agent.py</code>（点「复制加载命令」）。
+      本页只做检查、输出报告，不会修改模型。
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      <button class="btn" id="btnScdmConnect" style="padding:6px 10px">复制加载命令</button>
+      <button class="btn primary" id="btnScdmProbe" style="padding:6px 10px">① 探测环境</button>
+      <button class="btn" id="btnScdmParts" style="padding:6px 10px">② 列出零件</button>
+      <button class="btn" id="btnScdmSym" style="padding:6px 10px">③ 对称/位置检查</button>
+      <button class="btn" id="btnScdmGaps" style="padding:6px 10px">④ 接触间隙（包围盒）</button>
+    </div>
+    <div id="scdmSummary" class="muted" style="font-size:12.5px;margin-bottom:6px"></div>
+    <div id="scdmResult" style="max-height:260px;overflow:auto;font-size:12px"></div>
+  </div>
+
+<div class="card" style="margin-top:14px">
       <h2>单元数排行 <span class="muted" id="cntSum" style="font-weight:400;text-transform:none"></span></h2>
       <div class="muted" style="font-size:12px;margin-bottom:6px">
         按每个体的单元数从大到小；占大头的通常是薄壁/细长件，优先改扫掠或放宽尺寸</div>
@@ -457,6 +476,119 @@ document.addEventListener('keydown', (e) => {
     forceUnbusy();
   }
 });
+
+/* ---------------- SpaceClaim 模型体检（只读） ---------------- */
+async function loadScdmStatus(){
+  const el = $('scdmState');
+  if(!el) return;
+  try{
+    const r = await api('/api/scdm/status', {_timeoutMs: 8000});
+    if(r && r.online){
+      el.textContent = `已连接 · v${r.version||'?'} · ${r.doc||'（无文档）'}`;
+      el.style.color = '#7ee2a8';
+      window.SCDM_ONLINE = true;
+    }else{
+      el.textContent = '未连接（在 SpaceClaim 里加载 scdm_agent.py）';
+      el.style.color = '#ffb84d';
+      window.SCDM_ONLINE = false;
+    }
+  }catch(e){ el.textContent = '状态读取失败'; }
+}
+
+async function scdmConnect(){
+  const r = await api('/api/scdm/connect', {method:'POST', body:'{}', _timeoutMs: 15000});
+  if(r && r.ok){
+    log('SpaceClaim 加载命令已复制到剪贴板');
+    if(r.command) log('  ' + r.command);
+    toast('命令已复制，粘贴到 SpaceClaim 的 Scripting 面板并 Run');
+  }else{
+    log('复制失败：' + (r && r.error || ''));
+    toast('复制失败');
+  }
+  loadScdmStatus();
+}
+
+async function scdmOp(op, label){
+  setBusy(true, 'SpaceClaim：' + label);
+  const out = $('scdmResult');
+  const sum = $('scdmSummary');
+  if(out) out.innerHTML = '<div class="muted">执行中…</div>';
+  try{
+    const r = await api('/api/scdm/op', {_timeoutMs: 300000, method:'POST',
+      body: JSON.stringify({op: op, payload: {}})});
+    if(!r || !r.ok){
+      const msg = (r && (r.error || r.message)) || '失败';
+      if(out) out.innerHTML = `<div style="color:#ffb4b4">${msg}</div>`;
+      log('SpaceClaim ' + label + ' 失败：' + msg);
+      toast('失败');
+      setBusy(false);
+      return;
+    }
+    log('SpaceClaim ' + label + ' 完成');
+    renderScdm(op, r);
+  }catch(e){
+    if(out) out.innerHTML = '<div style="color:#ffb4b4">异常：' + e + '</div>';
+  }
+  setBusy(false);
+}
+
+function renderScdm(op, r){
+  const out = $('scdmResult');
+  const sum = $('scdmSummary');
+  if(!out) return;
+  if(op === 'probe'){
+    if(sum) sum.textContent = `文档：${r.doc_name||'—'}　组件：${r.component_count||0}　体：${r.body_total||0}`;
+    out.innerHTML = '<pre style="white-space:pre-wrap;margin:0">' +
+      JSON.stringify(r, null, 1).replace(/</g,'&lt;') + '</pre>';
+    return;
+  }
+  if(op === 'list_parts'){
+    const cs = r.components || [];
+    if(sum) sum.textContent = `组件 ${cs.length} 个，体 ${r.body_total||0} 个`;
+    let html = '<table><thead><tr><th>组件</th><th class="num">体</th><th>尺寸(长×宽×高)</th></tr></thead><tbody>';
+    cs.slice(0, 200).forEach(c => {
+      const b0 = (c.bodies || [])[0] || {};
+      let dim = '—';
+      if(b0.bbox){
+        const d = [0,1,2].map(i => Math.round((b0.bbox.max[i]-b0.bbox.min[i])*10)/10);
+        dim = d.join(' × ');
+      }
+      html += `<tr><td>${'·'.repeat(c.depth||0)} ${c.name}</td>
+        <td class="num">${(c.bodies||[]).length}</td><td class="muted">${dim}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    out.innerHTML = html;
+    return;
+  }
+  if(op === 'symmetry'){
+    const iss = r.issues || [];
+    if(sum) sum.textContent = `检查配对 ${r.checked||0} 组，发现不对称 ${iss.length} 处（跳过 ${r.skipped||0} 个多体/白名单组件）`;
+    if(!iss.length){ out.innerHTML = '<div style="color:#7ee2a8">未发现明显不对称</div>'; return; }
+    let html = '<table><thead><tr><th>轴</th><th>体 A</th><th>体 B</th><th class="num">期望</th><th class="num">实际</th><th class="num">偏差</th><th class="num">建议平移</th></tr></thead><tbody>';
+    iss.forEach(x => {
+      html += `<tr><td>${x.axis}</td><td>${x.a}</td><td>${x.b}</td>
+        <td class="num">${x.expected}</td><td class="num">${x.actual}</td>
+        <td class="num" style="color:#ffd48a">${x.deviation}</td>
+        <td class="num" style="color:#9fd2ff">${x.suggest_shift}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    out.innerHTML = html;
+    return;
+  }
+  if(op === 'gaps'){
+    const ps = r.pairs || [];
+    if(sum) sum.textContent = `邻近组件对 ${ps.length} 组（${r.note||''}）`;
+    let html = '<table><thead><tr><th>A</th><th>B</th><th class="num">最小间隙</th><th>各轴间隙</th></tr></thead><tbody>';
+    ps.slice(0, 100).forEach(p => {
+      html += `<tr><td>${p.a}</td><td>${p.b}</td><td class="num">${p.min_gap}</td>
+        <td class="muted">${(p.gap_xyz||[]).join(' / ')}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    out.innerHTML = html;
+    return;
+  }
+  out.innerHTML = '<pre style="white-space:pre-wrap">' + JSON.stringify(r, null, 1).replace(/</g,'&lt;') + '</pre>';
+}
 
 /* ---------------- 进度与停止 ---------------- */
 let PROG_TIMER = null;
@@ -2415,6 +2547,11 @@ async function aiAnalyze(){
 $('btnRefresh').onclick = refresh;
 $('btnStop').onclick = cancelOp;
 $('btnFavSave').onclick = saveFavorite;
+  const _sc1 = $('btnScdmConnect'); if(_sc1) _sc1.onclick = scdmConnect;
+  const _sc2 = $('btnScdmProbe'); if(_sc2) _sc2.onclick = () => scdmOp('probe','探测环境');
+  const _sc3 = $('btnScdmParts'); if(_sc3) _sc3.onclick = () => scdmOp('list_parts','列出零件');
+  const _sc4 = $('btnScdmSym'); if(_sc4) _sc4.onclick = () => scdmOp('symmetry','对称/位置检查');
+  const _sc5 = $('btnScdmGaps'); if(_sc5) _sc5.onclick = () => scdmOp('gaps','接触间隙检查');
   const _kbBtn = $('btnKbCapture'); if(_kbBtn) _kbBtn.onclick = captureKb;
 $('btnMemSave').onclick = saveMemory;
 $('btnMemCapture').onclick = capturePlan;
@@ -2476,6 +2613,7 @@ $('btnSaveLLM').onclick = async () => {
 /* ---------------- 启动 ---------------- */
 (async function init(){
   loadKb();
+  loadScdmStatus();
   await loadConfig();
   await refresh();
   if($('dot').className.indexOf('on') >= 0) await loadCategories();

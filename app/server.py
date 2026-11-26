@@ -3724,6 +3724,67 @@ def _start_async_job(op, fn):
     return jid
 
 
+# ============================================================================
+#  SpaceClaim 只读体检通道（scdm_agent.py 在 SpaceClaim 的 Scripting 里运行）
+# ============================================================================
+SCDM_CMD_PATH = os.path.join(IPC_DIR, "scdm_cmd.json")
+SCDM_RES_PATH = os.path.join(IPC_DIR, "scdm_result.json")
+SCDM_STATE_PATH = os.path.join(IPC_DIR, "scdm_state.json")
+SCDM_CONNECT_CMD = (
+    'import os;os.environ["MESHKIT_ROOT"]=r"%s";execfile(r"%s")'
+) % (ROOT, os.path.join(APP_DIR, "scdm_agent.py").replace("\\", "/"))
+
+
+def scdm_state(max_age=20.0):
+    """SpaceClaim 代理是否在线：读心跳文件"""
+    d = _read_json(SCDM_STATE_PATH)
+    if not d:
+        return {"ok": False, "online": False, "error": "未加载 scdm_agent.py"}
+    try:
+        ts = time.mktime(time.strptime(d.get("ts") or "", "%Y-%m-%d %H:%M:%S"))
+        age = time.time() - ts
+    except Exception:
+        age = 9999
+    d["age"] = round(age, 1)
+    d["online"] = age <= max_age
+    d["ok"] = True
+    return d
+
+
+def call_scdm(op, payload=None, timeout=120):
+    """给 SpaceClaim 代理下命令（单实例，文件队列）"""
+    try:
+        if os.path.isfile(SCDM_RES_PATH):
+            os.remove(SCDM_RES_PATH)
+    except Exception:
+        pass
+    seq = uuid.uuid4().hex[:12]
+    try:
+        _write_json(SCDM_CMD_PATH, {"seq": seq, "op": op, "payload": payload or {}})
+    except Exception as e:
+        return {"ok": False, "error": "写命令失败: %s" % str(e)[:80]}
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(0.25)
+        d = _read_json(SCDM_RES_PATH)
+        if d and d.get("seq") == seq:
+            try:
+                os.remove(SCDM_RES_PATH)
+            except Exception:
+                pass
+            return d
+    return {"ok": False, "timeout": True,
+            "error": "SpaceClaim 代理超时（%ss）" % int(timeout)}
+
+
+def scdm_connect():
+    """把加载命令放进剪贴板，并给出指引"""
+    ok = _set_clipboard(SCDM_CONNECT_CMD)
+    return {"ok": True, "clipboard": ok, "command": SCDM_CONNECT_CMD,
+            "state": scdm_state(),
+            "message": "命令已复制到剪贴板：到 SpaceClaim 的 Scripting 面板粘贴后按 Run"}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MeshKitAI/1.0"
 
@@ -4291,6 +4352,9 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/premesh":
                 return self._json(premesh_check())
+
+            if path == "/api/scdm/status":
+                return self._json(dict(scdm_state(), connect_cmd=SCDM_CONNECT_CMD))
 
             if path == "/api/model_key":
                 try:
@@ -4910,6 +4974,19 @@ tr:hover td{background:#141a22}
                     pass
                 return self._json({"ok": True, "released": _n,
                                    "message": "已重置桥接锁，可重新操作"})
+
+            if path == "/api/scdm/connect":
+                return self._json(scdm_connect())
+
+            if path == "/api/scdm/op":
+                body = self._body()
+                op = body.get("op") or ""
+                payload = body.get("payload") or {}
+                if not scdm_state().get("online"):
+                    return self._json({"ok": False, "offline": True,
+                                       "error": "SpaceClaim 代理未运行：请在 SpaceClaim 的 Scripting 面板加载 scdm_agent.py"})
+                return self._json(call_scdm(op, payload,
+                                            timeout=float(body.get("timeout") or 180)))
 
             if path == "/api/agent/reload":
                 body = self._body()
