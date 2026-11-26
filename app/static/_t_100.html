@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>MeshKit · SpaceClaim 模型体检</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#111823; --panel2:#16202c; --line:#22303f;
+    --text:#e6edf3; --muted:#8aa0b4; --dim:#5d7183;
+    --blue:#2f81f7; --green:#2ea043; --amber:#d29922; --red:#c93c37;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.55 "Segoe UI","Microsoft YaHei",system-ui,sans-serif}
+  header{display:flex;align-items:center;gap:14px;padding:12px 20px;
+         border-bottom:1px solid var(--line);background:var(--panel);
+         position:sticky;top:0;z-index:10}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px}
+  .pill{font-size:12px;padding:3px 9px;border-radius:999px;
+        border:1px solid var(--line);background:var(--panel2);color:var(--muted);
+        white-space:nowrap}
+  .grow{flex:1}
+  .btn{background:var(--panel2);color:var(--text);border:1px solid var(--line);
+       border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer}
+  .btn:hover{border-color:#33procent}
+  .btn:hover{border-color:#3b5266}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn.primary{background:var(--blue);border-color:var(--blue);color:#fff}
+  main{padding:16px 20px 40px;max-width:1400px;margin:0 auto}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:14px 16px;margin-bottom:14px}
+  .card h2{font-size:14px;margin:0 0 10px;font-weight:600}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--muted)}
+  .dim{color:var(--dim)}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;
+        vertical-align:top}
+  th{color:var(--muted);font-weight:500;position:sticky;top:0;background:var(--panel)}
+  td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+  .scroll{max-height:460px;overflow:auto;border:1px solid var(--line);
+          border-radius:8px}
+  pre{margin:0;white-space:pre-wrap;font-family:Consolas,monospace;font-size:12px}
+  .ok{color:#7ee2a8} .warn{color:#ffd48a} .err{color:#ff9d9d}
+  .log{max-height:150px;overflow:auto;font-family:Consolas,monospace;
+       font-size:12px;color:var(--muted)}
+  .steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+         gap:10px;margin-top:8px}
+  .step{background:var(--panel2);border:1px solid var(--line);border-radius:8px;
+        padding:9px 11px;font-size:12.5px;color:var(--muted)}
+  .step b{color:var(--text);font-weight:600}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;
+       font-family:Consolas,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>SpaceClaim 模型体检</h1>
+  <span class="pill" id="conn">检测中…</span>
+  <span class="pill" id="docName" hidden></span>
+  <div class="grow"></div>
+  <a class="btn" href="/" style="text-decoration:none">← 网格工具</a>
+  <button class="btn primary" id="btnConnect">连接 SpaceClaim</button>
+  <button class="btn" id="btnManual" title="高级：在 SpaceClaim 里手动加载代理脚本">手动方式</button>
+</header>
+
+<main>
+  <div class="card">
+    <h2>连接方式（自动）</h2>
+    <div class="steps">
+      <div class="step"><b>1.</b> 点右上「连接 SpaceClaim」</div>
+      <div class="step"><b>2.</b> 下面选模型 → 「开始全自动体检」</div>
+      <div class="step"><b>3.</b> 后台自动启动 SpaceClaim 检查，约 1 分钟</div>
+      <div class="step"><b>4.</b> 结果直接出表，不需要手动跑脚本</div>
+    </div>
+    <div class="muted" style="margin-top:10px;font-size:12.5px">
+      连接状态：<span id="agentInfo">未连接</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>全自动体检（后台运行，不需要在 SpaceClaim 里点脚本）</h2>
+    <div class="toolbar">
+      <select id="modelSel" class="btn" style="min-width:420px">
+        <option value="">正在读取模型列表…</option>
+      </select>
+      <button class="btn" id="btnReloadModels">刷新列表</button>
+      <button class="btn primary" id="btnBatch">开始全自动体检</button>
+      <span class="pill" id="batchState">就绪</span>
+    </div>
+    <div class="muted" style="margin-top:8px;font-size:12.5px">
+      后台会启动一个隐藏的 SpaceClaim 打开所选模型做只读检查，约 1 分钟（取决于模型大小），
+      期间不要关闭弹窗；完成后结果显示在下面。
+    </div>
+    <div style="margin-top:12px" class="scroll" id="batchResult">
+      <div class="muted" style="padding:12px">尚未运行</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>只读检查（实时代理模式，需要先用手动方式加载脚本）</h2>
+    <div class="toolbar">
+      <button class="btn" id="btnParts">② 列出零件</button>
+      <button class="btn" id="btnSym">③ 对称 / 位置检查</button>
+      <button class="btn" id="btnGaps">④ 接触间隙（包围盒粗筛）</button>
+      <span class="grow"></span>
+      <span class="pill" id="summary">等待执行</span>
+    </div>
+    <div style="margin-top:12px" class="scroll" id="result">
+      <div class="muted" style="padding:12px">点上方按钮开始检查</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>日志</h2>
+    <div class="log" id="log"></div>
+  </div>
+</main>
+
+<script>
+document.title = 'JS-RAN-MARK';
+window.onerror = function(m, src, line, col, err){
+  document.title = 'JSERR: ' + m + ' @' + line + ':' + col;
+  return false;
+};
+const $ = id => document.getElementById(id);
+let BUSY = false;
+let AGENT_ONLINE = false;
+
+function log(msg){
+  const el = $('log');
+  const t = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  el.innerHTML += `<div>[${t}] ${msg}</div>`;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function api(path, opt){
+  opt = opt || {};
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opt._timeoutMs || 30000);
+  try{
+    const r = await fetch(path, {
+      method: opt.method || 'GET',
+      headers: {'Content-Type':'application/json'},
+      body: opt.body,
+      signal: ctrl.signal
+    });
+    return await r.json();
+  }catch(e){
+    return {ok: false, error: (e && e.name === 'AbortError') ? '请求超时' : String(e)};
+  }finally{
+    clearTimeout(timer);
+  }
+}
+
+async function refreshConn(){
+  const el = $('conn');
+  const dn = $('docName');
+  const ai = $('agentInfo');
+  try{
+    const r = await api('/api/scdm/connect', {method:'POST', body:'{}', _timeoutMs: 20000});
+    if(r && r.ok){
+      AGENT_ONLINE = true;
+      el.textContent = '已连接 · ' + (r.version || '') ;
+      el.style.color = '#7ee2a8';
+      el.style.borderColor = '#1f6f4a';
+      const wins = r.windows || [];
+      if(wins.length){
+        dn.hidden = false;
+        dn.textContent = '当前文档：' + wins[0].doc + (wins.length > 1 ? (' 等 ' + wins.length + ' 个') : '');
+      }else{
+        dn.hidden = true;
+      }
+      ai.innerHTML = '已连接（自动模式）　SpaceClaim：' + (r.version || '?') +
+        '<br>' + (r.exe || '') +
+        '<br><span class="muted">' + (r.message || '') + '</span>';
+    }else{
+      AGENT_ONLINE = false;
+      el.textContent = '未连接';
+      el.style.color = '#ffb84d';
+      el.style.borderColor = '#6b4f1d';
+      dn.hidden = true;
+      ai.textContent = (r && r.error) || '未找到 SpaceClaim';
+    }
+  }catch(e){
+    el.textContent = '连接失败';
+    ai.textContent = String(e);
+  }
+}
+
+async function doConnect(){
+  const r = await api('/api/scdm/connect', {method:'POST', body:'{}', _timeoutMs: 20000});
+  if(r && r.ok){
+    log('已连接 SpaceClaim ' + (r.version || '') + '（自动模式）');
+    if((r.windows||[]).length) log('当前文档：' + r.windows[0].doc);
+    refreshConn();
+  }else{
+    log('连接失败：' + ((r && r.error) || ''));
+    alert('连接失败：' + ((r && r.error) || '未找到 SpaceClaim.exe'));
+  }
+}
+
+async function manualCommand(){
+  const r = await api('/api/scdm/command', {method:'POST', body:'{}', _timeoutMs: 15000});
+  if(r && r.ok){
+    log('手动加载命令已复制到剪贴板');
+    log(r.command || '');
+    alert('已复制手动加载命令。\n\n只有在需要用“实时代理模式”（在已打开的 SpaceClaim 里跑脚本）时才会用到：\n\n' + (r.command||''));
+  }else{
+    log('获取命令失败');
+  }
+}
+
+async function runOp(op, label){
+  if(BUSY) return;
+  if(!AGENT_ONLINE){
+    log('未连接 SpaceClaim，先加载 scdm_agent.py');
+    return;
+  }
+  BUSY = true;
+  $('summary').textContent = label + ' 执行中…';
+  $('result').innerHTML = '<div class="muted" style="padding:12px">执行中…</div>';
+  try{
+    const r = await api('/api/scdm/op', {_timeoutMs: 300000, method:'POST',
+      body: JSON.stringify({op: op, payload: {}})});
+    if(!r || !r.ok){
+      const msg = (r && (r.error || r.message)) || '失败';
+      $('result').innerHTML = `<div class="err" style="padding:12px">${msg}</div>`;
+      log(label + ' 失败：' + msg);
+      $('summary').textContent = '失败';
+      return;
+    }
+    log(label + ' 完成');
+    render(op, r);
+  }catch(e){
+    log(label + ' 异常：' + e);
+  }finally{
+    BUSY = false;
+  }
+}
+
+function render(op, r){
+  const box = $('result');
+  const sum = $('summary');
+  if(op === 'probe'){
+    sum.textContent = `组件 ${r.component_count||0} · 体 ${r.body_total||0}`;
+    box.innerHTML = '<pre style="padding:10px">' +
+      JSON.stringify(r, null, 1).replace(/</g,'&lt;') + '</pre>';
+    return;
+  }
+  if(op === 'list_parts'){
+    const cs = r.components || [];
+    sum.textContent = `组件 ${cs.length} 个 · 体 ${r.body_total||0} 个`;
+    let h = '<table><thead><tr><th>组件</th><th class="num">体</th>' +
+            '<th>尺寸</th><th class="num">体积</th></tr></thead><tbody>';
+    cs.slice(0,500).forEach(c => {
+      const b0 = (c.bodies || [])[0] || {};
+      let dim = '—', vol = '—';
+      if(b0.bbox){
+        dim = [0,1,2].map(i => Math.round((b0.bbox.max[i]-b0.bbox.min[i])*10)/10).join(' × ');
+      }
+      if(b0.volume != null) vol = Number(b0.volume).toFixed(1);
+      h += `<tr><td>${'　'.repeat(c.depth||0)}${c.name}</td>` +
+           `<td class="num">${(c.bodies||[]).length}</td>` +
+           `<td class="muted">${dim}</td><td class="num">${vol}</td></tr>`;
+    });
+    h += '</tbody></table>';
+    box.innerHTML = h;
+    return;
+  }
+  if(op === 'symmetry'){
+    const iss = r.issues || [];
+    sum.textContent = `配对 ${r.checked||0} 组 · 不对称 ${iss.length} 处 · 跳过 ${r.skipped||0}`;
+    if(!iss.length){
+      box.innerHTML = '<div class="ok" style="padding:12px">未发现明显不对称</div>';
+      return;
+    }
+    let h = '<table><thead><tr><th>轴</th><th>体 A</th><th>体 B</th>' +
+            '<th class="num">期望</th><th class="num">实际</th>' +
+            '<th class="num">偏差</th><th class="num">建议平移</th></tr></thead><tbody>';
+    iss.forEach(x => {
+      h += `<tr><td>${x.axis}</td><td>${x.a}</td><td>${x.b}</td>` +
+           `<td class="num">${x.expected}</td><td class="num">${x.actual}</td>` +
+           `<td class="num warn">${x.deviation}</td>` +
+           `<td class="num" style="color:#9fd2ff">${x.suggest_shift}</td></tr>`;
+    });
+    h += '</tbody></table>';
+    box.innerHTML = h;
+    return;
+  }
+  if(op === 'gaps'){
+    const ps = r.pairs || [];
+    sum.textContent = `邻近组件对 ${ps.length} 组`;
+    let h = '<table><thead><tr><th>A</th><th>B</th>' +
+            '<th class="num">最小间隙</th><th>各轴</th></tr></thead><tbody>';
+    ps.slice(0,300).forEach(p => {
+      h += `<tr><td>${p.a}</td><td>${p.b}</td>` +
+           `<td class="num">${p.min_gap}</td>` +
+           `<td class="muted">${(p.gap_xyz||[]).join(' / ')}</td></tr>`;
+    });
+    h += '</tbody></table>';
+    if(r.note) h += `<div class="muted" style="padding:8px">${r.note}</div>`;
+    box.innerHTML = h;
+    return;
+  }
+  box.innerHTML = '<pre style="padding:10px">' +
+    JSON.stringify(r, null, 1).replace(/</g,'&lt;') + '</pre>';
+}
+
+/* ---------------- 全自动体检（headless） ---------------- */
+let BATCH_BUSY = false;
+
+async function loadModels(){
+  const sel = $('modelSel');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">读取中…</option>';
+  try{
+    const r = await api('/api/scdm/models', {_timeoutMs: 60000});
+    const ms = (r && r.models) || [];
+    if(!ms.length){ sel.innerHTML = '<option value="">没找到 .scdoc 模型</option>'; return; }
+    sel.innerHTML = ms.map(m =>
+      `<option value="${m.path}">${m.mtime_str} · ${m.size_mb}MB · ${m.path}</option>`).join('');
+    log('模型列表：' + ms.length + ' 个');
+  }catch(e){
+    sel.innerHTML = '<option value="">读取失败</option>';
+  }
+}
+
+async function runBatch(){
+  if(BATCH_BUSY) return;
+  const model = $('modelSel').value;
+  if(!model){ log('先选一个模型'); return; }
+  BATCH_BUSY = true;
+  $('batchState').textContent = '运行中…';
+  $('batchResult').innerHTML = '<div class="muted" style="padding:12px">正在后台启动 SpaceClaim 体检，约 1 分钟…</div>';
+  log('开始全自动体检：' + model);
+  try{
+    const r = await api('/api/scdm/batch', {_timeoutMs: 900000, method:'POST',
+      body: JSON.stringify({op:'all', model: model, tol_mm:1.0, max_gap_mm:3.0})});
+    if(!r || !r.ok){
+      const msg = (r && (r.error || r.message)) || '失败';
+      $('batchState').textContent = '失败';
+      $('batchResult').innerHTML = `<div class="err" style="padding:12px">${msg}</div>`;
+      log('失败：' + msg);
+      return;
+    }
+    $('batchState').textContent = '完成 ' + (r.seconds||'') + 's';
+    log(`完成：体 ${r.body_count}，耗时 ${r.seconds}s`);
+    renderBatch(r);
+  }catch(e){
+    $('batchState').textContent = '异常';
+    $('batchResult').innerHTML = '<div class="err" style="padding:12px">' + e + '</div>';
+  }finally{
+    BATCH_BUSY = false;
+  }
+}
+
+function renderBatch(r){
+  const s = r.symmetry || {};
+  const p = r.pairs || {};
+  const issues = s.issues || [];
+  const gaps = p.gaps || [];
+  const interf = p.interference || [];
+  let h = `<div style="padding:8px 10px" class="muted">文档：${r.doc || '—'}　体：${r.body_count||0}　` +
+          `耗时：${r.seconds||'?'}s</div>`;
+  h += '<table><thead><tr><th>检查项</th><th class="num">数量</th><th>说明</th></tr></thead><tbody>';
+  h += `<tr><td>对称/位置</td><td class="num">${issues.length}</td>` +
+       `<td class="muted">${s.groups||0} 组同尺寸，比对 ${s.checked||0} 对</td></tr>`;
+  h += `<tr><td>疑似间隙</td><td class="num">${gaps.length}</td>` +
+       `<td class="muted">≤3mm 的最近距离对</td></tr>`;
+  h += `<tr><td>干涉</td><td class="num">${interf.length}</td>` +
+       `<td class="muted">布尔碰撞判定为相交</td></tr>`;
+  h += '</tbody></table>';
+
+  if(issues.length){
+    h += '<div style="padding:8px 10px" class="warn">对称/位置偏差：</div>';
+    h += '<table><thead><tr><th>轴</th><th>A</th><th>B</th><th class="num">期望</th>' +
+         '<th class="num">实际</th><th class="num">偏差</th><th class="num">建议平移</th></tr></thead><tbody>';
+    issues.forEach(x => {
+      h += `<tr><td>${x.axis}</td><td>${x.a}</td><td>${x.b}</td>` +
+           `<td class="num">${x.expected}</td><td class="num">${x.actual}</td>` +
+           `<td class="num warn">${x.deviation}</td>` +
+           `<td class="num" style="color:#9fd2ff">${x.suggest_shift}</td></tr>`;
+    });
+    h += '</tbody></table>';
+  }
+  if(gaps.length){
+    h += '<div style="padding:8px 10px" class="warn">间隙（可能应该接触）：</div>';
+    h += '<table><thead><tr><th>A</th><th>B</th><th class="num">距离 mm</th><th>A 侧点</th><th>B 侧点</th></tr></thead><tbody>';
+    gaps.slice(0,120).forEach(g => {
+      h += `<tr><td>${g.a}</td><td>${g.b}</td><td class="num">${g.distance_mm}</td>` +
+           `<td class="muted">${(g.point_a||[]).join(', ')}</td>` +
+           `<td class="muted">${(g.point_b||[]).join(', ')}</td></tr>`;
+    });
+    h += '</tbody></table>';
+  }
+  if(interf.length){
+    h += '<div style="padding:8px 10px" class="warn">干涉（相交）：</div>';
+    h += '<table><thead><tr><th>A</th><th>B</th><th>包围盒重叠 mm</th></tr></thead><tbody>';
+    interf.slice(0,120).forEach(x => {
+      h += `<tr><td>${x.a}</td><td>${x.b}</td>` +
+           `<td class="muted">${(x.bbox_overlap_mm||[]).join(' / ')}</td></tr>`;
+    });
+    h += '</tbody></table>';
+  }
+  $('batchResult').innerHTML = h;
+}
+
+function bind(id, fn){
+  const el = document.getElementById(id);
+  if(el) el.onclick = fn;
+}
+bind('btnConnect', doConnect);
+bind('btnManual', manualCommand);
+bind('btnProbe', () => runOp('probe', '探测环境'));
+bind('btnParts', () => runOp('list_parts', '列出零件'));
+bind('btnSym', () => runOp('symmetry', '对称/位置检查'));
+bind('btnGaps', () => runOp('gaps', '接触间隙检查'));
+bind('btnBatch', runBatch);
+bind('btnReloadModels', loadModels);
+
+doConnect();
+loadModels();
+setInterval(refreshConn, 15000);
+log('页面已加载，等待连接 SpaceClaim');
+</script>
+</body>
+</html>

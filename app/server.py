@@ -3944,6 +3944,54 @@ def _scdm_windows():
     return out
 
 
+def scdm_recent_files(limit=20):
+    """从 SpaceClaim 的 journal 文件解析 MruFileList（最近真正打开过的模型路径）"""
+    import glob as _g
+    import re as _re
+    appdata = os.environ.get("APPDATA") or ""
+    jdir = os.path.join(appdata, "SpaceClaim", "Journal Files")
+    if not os.path.isdir(jdir):
+        return []
+    files = []
+    try:
+        for p in _g.glob(os.path.join(jdir, "*.scjournal")):
+            try:
+                files.append((os.path.getmtime(p), p))
+            except Exception:
+                continue
+    except Exception:
+        return []
+    files.sort(reverse=True)
+    out = []
+    seen = set()
+    for ts, p in files[:40]:
+        try:
+            _f = open(p, "rb")
+            try:
+                raw = _f.read()
+            finally:
+                _f.close()
+        except Exception:
+            continue
+        txt = raw.decode("utf-8", "replace")
+        blocks = _re.findall(r"<MruFileList>(.*?)</MruFileList>", txt, _re.S)
+        for b in blocks:
+            for m in _re.findall(r"<string>(.*?)</string>", b, _re.S):
+                path = m.strip()
+                if not path.lower().endswith(".scdoc"):
+                    continue
+                if path in seen:
+                    continue
+                seen.add(path)
+                out.append({"path": path,
+                            "exists": os.path.isfile(path),
+                            "journal_ts": ts,
+                            "journal": os.path.basename(p)})
+                if len(out) >= limit:
+                    return out
+    return out
+
+
 def scdm_auto_info():
     """连接信息：exe、版本、当前打开的窗口、最近模型"""
     exe = scdm_exe()
@@ -3959,6 +4007,7 @@ def scdm_auto_info():
             ver = ""
     return {"ok": bool(exe), "mode": "auto", "exe": exe, "version": ver,
             "windows": _scdm_windows(),
+            "recent": scdm_recent_files(limit=12),
             "models": scdm_models(limit=10)}
 
 
