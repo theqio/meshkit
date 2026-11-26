@@ -82,3 +82,6 @@ app/model_config__*.json
 # DLP ²âÊÔ/ÁÙÊ±Ì½Õë
 _dlp_test/
 _dlp_probe*
+
+# ä¸´æ—¶è°ƒè¯•é¡µ
+app/static/_t_*.html
