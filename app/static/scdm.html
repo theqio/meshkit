@@ -70,7 +70,7 @@
     <h2>使用前：在 SpaceClaim 里加载体检代理</h2>
     <div class="steps">
       <div class="step"><b>1.</b> 打开 SpaceClaim 并载入模型</div>
-      <div class="step"><b>2.</b> 文件 → Scripting 面板</div>
+      <div class="step"><b>2.</b> 设计选项卡 → <b>脚本</b>按钮；或 文件 → 新建 → 脚本</div>
       <div class="step"><b>3.</b> 点右上「复制加载命令」→ 粘贴 → Run</div>
       <div class="step"><b>4.</b> 本页状态变绿后可开始检查</div>
     </div>
@@ -161,7 +161,7 @@ async function doConnect(){
   if(r && r.ok){
     log('加载命令已复制到剪贴板');
     log(r.command || '');
-    alert('命令已复制。\n\n到 SpaceClaim：文件 → Scripting → 粘贴 → Run');
+    alert('命令已复制。\n\n到 SpaceClaim：设计选项卡 → 脚本（或 文件 → 新建 → 脚本）→ 粘贴 → 运行');
   }else{
     log('复制失败：' + ((r && r.error) || ''));
   }

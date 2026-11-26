@@ -27,10 +27,12 @@ app/ipc/scdm_state.json                            ← SpaceClaim 心跳
 ### 2. 在 SpaceClaim 里加载体检代理
 
 1. 打开 SpaceClaim（先打开要检查的模型）
-2. 顶部 **「文件」→「Scripting」**（中文界面：`文件` 选项卡右侧 / 或 `脚本`），打开 Scripting 面板
-3. 点网页上 SpaceClaim 卡片的 **「复制加载命令」**
-4. 到 Scripting 面板粘贴，按 **Run**（或 F5）
-5. 看到 `[scdm-bridge] 已启动` 即成功
+2. 打开**脚本编辑器**（二选一）：
+   - 「设计 / Design」选项卡 → 找到 **脚本 / Script** 按钮
+   - 「文件 / File」→ **新建 / New** → **脚本 / Script**
+3. 点网页右上角的 **「复制加载命令」**
+4. 到脚本编辑器里粘贴，点 **运行**（▶ 或 F5）
+5. 看到 `[scdm-bridge] 已启动` 即成功，网页状态变绿
 
 命令形如：
 
