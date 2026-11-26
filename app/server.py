@@ -3823,6 +3823,8 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 return self._static("index.html")
+            if path in ("/scdm", "/scdm/", "/scdm.html"):
+                return self._static("scdm.html")
             if path.startswith("/static/"):
                 return self._static(path[len("/static/"):])
 
