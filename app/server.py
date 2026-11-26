@@ -3785,6 +3785,125 @@ def scdm_connect():
             "message": "命令已复制到剪贴板：到 SpaceClaim 的 Scripting 面板粘贴后按 Run"}
 
 
+# ---------------------------------------------------------------------------
+#  SpaceClaim 全自动体检（headless）
+# ---------------------------------------------------------------------------
+SCDM_BATCH_SCRIPT = os.path.join(APP_DIR, "scdm_batch.py")
+SCDM_TEMP = os.environ.get("TEMP") or os.environ.get("TMP") or r"C:\Temp"
+SCDM_JOB = os.path.join(SCDM_TEMP, "meshkit_scdm_job.json")
+SCDM_RESULT = os.path.join(SCDM_TEMP, "meshkit_scdm_result.json")
+
+
+def scdm_exe():
+    """定位 SpaceClaim.exe"""
+    root = os.environ.get("AWP_ROOT221") or os.environ.get("AWP_ROOT")
+    cands = []
+    if root:
+        cands.append(os.path.join(root, "scdm", "SpaceClaim.exe"))
+        cands.append(os.path.join(root, "SCDM", "SpaceClaim.exe"))
+    cands += [
+        r"D:\Program Files\ANSYS Inc\v221\scdm\SpaceClaim.exe",
+        r"C:\Program Files\ANSYS Inc\v221\scdm\SpaceClaim.exe",
+        r"D:\Program Files\ANSYS Inc\v221\SCDM\SpaceClaim.exe",
+        r"C:\Program Files\ANSYS Inc\v221\SCDM\SpaceClaim.exe",
+    ]
+    for p in cands:
+        if p and os.path.isfile(p):
+            return p
+    return None
+
+
+_SCDM_MODELS_CACHE = {"ts": 0, "data": []}
+
+
+def scdm_models(limit=30, refresh=False):
+    """列出磁盘上最近的 .scdoc 模型（带 60 秒缓存，限制扫描深度）"""
+    now = time.time()
+    if (not refresh) and _SCDM_MODELS_CACHE["data"] \
+            and now - _SCDM_MODELS_CACHE["ts"] < 60:
+        return _SCDM_MODELS_CACHE["data"]
+    import glob
+    roots = []
+    _home = os.path.expanduser("~")
+    for r in (os.path.join("D:" + os.sep, "ai"),
+              os.path.join("E:" + os.sep, "ai"),
+              os.path.join(_home, "Desktop"),
+              os.path.join(_home, "Documents")):
+        if r and os.path.isdir(r):
+            roots.append(r)
+    found = []
+    for root in roots:
+        pats = [os.path.join(root, "*.scdoc"),
+                os.path.join(root, "*", "*.scdoc"),
+                os.path.join(root, "*", "*", "*.scdoc"),
+                os.path.join(root, "*", "*", "*", "*.scdoc")]
+        for pt in pats:
+            try:
+                for p in glob.glob(pt):
+                    try:
+                        st = os.stat(p)
+                    except Exception:
+                        continue
+                    found.append({"path": p, "mtime": st.st_mtime,
+                                  "size_mb": round(st.st_size / 1048576.0, 1)})
+            except Exception:
+                continue
+    found.sort(key=lambda x: x["mtime"], reverse=True)
+    seen = set()
+    out = []
+    for f in found:
+        if f["path"] in seen:
+            continue
+        seen.add(f["path"])
+        f["mtime_str"] = time.strftime("%m-%d %H:%M", time.localtime(f["mtime"]))
+        out.append(f)
+        if len(out) >= limit:
+            break
+    _SCDM_MODELS_CACHE["ts"] = now
+    _SCDM_MODELS_CACHE["data"] = out
+    return out
+
+
+def scdm_batch(op="all", model="", tol_mm=1.0, max_gap_mm=3.0,
+               whitelist=None, timeout=900):
+    """启动 headless SpaceClaim 跑体检，返回结果 dict"""
+    exe = scdm_exe()
+    if not exe:
+        return {"ok": False, "error": "未找到 SpaceClaim.exe"}
+    if not model or not os.path.isfile(model):
+        return {"ok": False, "error": "模型文件不存在: %s" % (model or "（未指定）")}
+    job = {"op": op, "result": SCDM_RESULT,
+           "tol_mm": float(tol_mm or 1.0),
+           "max_gap_mm": float(max_gap_mm or 3.0),
+           "whitelist": whitelist or []}
+    _write_json(SCDM_JOB, job)
+    try:
+        if os.path.isfile(SCDM_RESULT):
+            os.remove(SCDM_RESULT)
+    except Exception:
+        pass
+    # 注意：直接传参数，不要手工加引号（subprocess 会自己处理空格）
+    args = [model,
+            '/RunScript=%s' % SCDM_BATCH_SCRIPT,
+            '/Headless=True', '/ExitAfterScript=True', '/Splash=False']
+    import subprocess
+    t0 = time.time()
+    try:
+        subprocess.Popen([exe] + args, close_fds=True)
+    except Exception as e:
+        return {"ok": False, "error": "启动 SpaceClaim 失败: %s" % str(e)[:120]}
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        time.sleep(1.0)
+        d = _read_json(SCDM_RESULT)
+        if d:
+            d["seconds"] = round(time.time() - t0, 1)
+            d["model"] = model
+            return d
+    return {"ok": False, "timeout": True, "seconds": round(time.time() - t0, 1),
+            "error": "体检超时（%ss）：模型可能过大，或 SpaceClaim 启动失败" % int(timeout)}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "MeshKitAI/1.0"
 
@@ -4354,6 +4473,10 @@ class Handler(BaseHTTPRequestHandler):
 
             if path == "/api/premesh":
                 return self._json(premesh_check())
+
+            if path == "/api/scdm/models":
+                return self._json({"ok": True, "models": scdm_models(),
+                                   "exe": scdm_exe()})
 
             if path == "/api/scdm/status":
                 return self._json(dict(scdm_state(), connect_cmd=SCDM_CONNECT_CMD))
@@ -4976,6 +5099,16 @@ tr:hover td{background:#141a22}
                     pass
                 return self._json({"ok": True, "released": _n,
                                    "message": "已重置桥接锁，可重新操作"})
+
+            if path == "/api/scdm/batch":
+                body = self._body()
+                r = scdm_batch(op=body.get("op") or "all",
+                               model=(body.get("model") or "").strip(),
+                               tol_mm=body.get("tol_mm") or 1.0,
+                               max_gap_mm=body.get("max_gap_mm") or 3.0,
+                               whitelist=body.get("whitelist") or [],
+                               timeout=float(body.get("timeout") or 900))
+                return self._json(r)
 
             if path == "/api/scdm/connect":
                 return self._json(scdm_connect())

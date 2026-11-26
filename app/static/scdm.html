@@ -80,6 +80,25 @@
   </div>
 
   <div class="card">
+    <h2>全自动体检（后台运行，不需要在 SpaceClaim 里点脚本）</h2>
+    <div class="toolbar">
+      <select id="modelSel" class="btn" style="min-width:420px">
+        <option value="">正在读取模型列表…</option>
+      </select>
+      <button class="btn" id="btnReloadModels">刷新列表</button>
+      <button class="btn primary" id="btnBatch">开始全自动体检</button>
+      <span class="pill" id="batchState">就绪</span>
+    </div>
+    <div class="muted" style="margin-top:8px;font-size:12.5px">
+      后台会启动一个隐藏的 SpaceClaim 打开所选模型做只读检查，约 1 分钟（取决于模型大小），
+      期间不要关闭弹窗；完成后结果显示在下面。
+    </div>
+    <div style="margin-top:12px" class="scroll" id="batchResult">
+      <div class="muted" style="padding:12px">尚未运行</div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>只读检查（不修改模型）</h2>
     <div class="toolbar">
       <button class="btn" id="btnParts">② 列出零件</button>
@@ -165,7 +184,10 @@ async function doConnect(){
   }else{
     log('复制失败：' + ((r && r.error) || ''));
   }
-  refreshConn();
+  $('btnBatch').onclick = runBatch;
+$('btnReloadModels').onclick = loadModels;
+loadModels();
+refreshConn();
 }
 
 async function runOp(op, label){
@@ -262,6 +284,105 @@ function render(op, r){
   }
   box.innerHTML = '<pre style="padding:10px">' +
     JSON.stringify(r, null, 1).replace(/</g,'&lt;') + '</pre>';
+}
+
+/* ---------------- 全自动体检（headless） ---------------- */
+let BATCH_BUSY = false;
+
+async function loadModels(){
+  const sel = $('modelSel');
+  if(!sel) return;
+  sel.innerHTML = '<option value="">读取中…</option>';
+  try{
+    const r = await api('/api/scdm/models', {_timeoutMs: 60000});
+    const ms = (r && r.models) || [];
+    if(!ms.length){ sel.innerHTML = '<option value="">没找到 .scdoc 模型</option>'; return; }
+    sel.innerHTML = ms.map(m =>
+      `<option value="${m.path}">${m.mtime_str} · ${m.size_mb}MB · ${m.path}</option>`).join('');
+    log('模型列表：' + ms.length + ' 个');
+  }catch(e){
+    sel.innerHTML = '<option value="">读取失败</option>';
+  }
+}
+
+async function runBatch(){
+  if(BATCH_BUSY) return;
+  const model = $('modelSel').value;
+  if(!model){ log('先选一个模型'); return; }
+  BATCH_BUSY = true;
+  $('batchState').textContent = '运行中…';
+  $('batchResult').innerHTML = '<div class="muted" style="padding:12px">正在后台启动 SpaceClaim 体检，约 1 分钟…</div>';
+  log('开始全自动体检：' + model);
+  try{
+    const r = await api('/api/scdm/batch', {_timeoutMs: 900000, method:'POST',
+      body: JSON.stringify({op:'all', model: model, tol_mm:1.0, max_gap_mm:3.0})});
+    if(!r || !r.ok){
+      const msg = (r && (r.error || r.message)) || '失败';
+      $('batchState').textContent = '失败';
+      $('batchResult').innerHTML = `<div class="err" style="padding:12px">${msg}</div>`;
+      log('失败：' + msg);
+      return;
+    }
+    $('batchState').textContent = '完成 ' + (r.seconds||'') + 's';
+    log(`完成：体 ${r.body_count}，耗时 ${r.seconds}s`);
+    renderBatch(r);
+  }catch(e){
+    $('batchState').textContent = '异常';
+    $('batchResult').innerHTML = '<div class="err" style="padding:12px">' + e + '</div>';
+  }finally{
+    BATCH_BUSY = false;
+  }
+}
+
+function renderBatch(r){
+  const s = r.symmetry || {};
+  const p = r.pairs || {};
+  const issues = s.issues || [];
+  const gaps = p.gaps || [];
+  const interf = p.interference || [];
+  let h = `<div style="padding:8px 10px" class="muted">文档：${r.doc || '—'}　体：${r.body_count||0}　` +
+          `耗时：${r.seconds||'?'}s</div>`;
+  h += '<table><thead><tr><th>检查项</th><th class="num">数量</th><th>说明</th></tr></thead><tbody>';
+  h += `<tr><td>对称/位置</td><td class="num">${issues.length}</td>` +
+       `<td class="muted">${s.groups||0} 组同尺寸，比对 ${s.checked||0} 对</td></tr>`;
+  h += `<tr><td>疑似间隙</td><td class="num">${gaps.length}</td>` +
+       `<td class="muted">≤3mm 的最近距离对</td></tr>`;
+  h += `<tr><td>干涉</td><td class="num">${interf.length}</td>` +
+       `<td class="muted">布尔碰撞判定为相交</td></tr>`;
+  h += '</tbody></table>';
+
+  if(issues.length){
+    h += '<div style="padding:8px 10px" class="warn">对称/位置偏差：</div>';
+    h += '<table><thead><tr><th>轴</th><th>A</th><th>B</th><th class="num">期望</th>' +
+         '<th class="num">实际</th><th class="num">偏差</th><th class="num">建议平移</th></tr></thead><tbody>';
+    issues.forEach(x => {
+      h += `<tr><td>${x.axis}</td><td>${x.a}</td><td>${x.b}</td>` +
+           `<td class="num">${x.expected}</td><td class="num">${x.actual}</td>` +
+           `<td class="num warn">${x.deviation}</td>` +
+           `<td class="num" style="color:#9fd2ff">${x.suggest_shift}</td></tr>`;
+    });
+    h += '</tbody></table>';
+  }
+  if(gaps.length){
+    h += '<div style="padding:8px 10px" class="warn">间隙（可能应该接触）：</div>';
+    h += '<table><thead><tr><th>A</th><th>B</th><th class="num">距离 mm</th><th>A 侧点</th><th>B 侧点</th></tr></thead><tbody>';
+    gaps.slice(0,120).forEach(g => {
+      h += `<tr><td>${g.a}</td><td>${g.b}</td><td class="num">${g.distance_mm}</td>` +
+           `<td class="muted">${(g.point_a||[]).join(', ')}</td>` +
+           `<td class="muted">${(g.point_b||[]).join(', ')}</td></tr>`;
+    });
+    h += '</tbody></table>';
+  }
+  if(interf.length){
+    h += '<div style="padding:8px 10px" class="warn">干涉（相交）：</div>';
+    h += '<table><thead><tr><th>A</th><th>B</th><th>包围盒重叠 mm</th></tr></thead><tbody>';
+    interf.slice(0,120).forEach(x => {
+      h += `<tr><td>${x.a}</td><td>${x.b}</td>` +
+           `<td class="muted">${(x.bbox_overlap_mm||[]).join(' / ')}</td></tr>`;
+    });
+    h += '</tbody></table>';
+  }
+  $('batchResult').innerHTML = h;
 }
 
 $('btnConnect').onclick = doConnect;
